@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --operator-bg: #050507;
+  --operator-surface: #0d0d11;
+  --operator-purple: #d000ff;
+  --operator-cyan: #00f0ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--operator-bg);
+  color: #f8f7ff;
+}
+
+body {
+  margin: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 100% 56px, 56px 100%;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.operator-glow {
+  text-shadow: 0 0 8px rgba(208, 0, 255, 0.9), 0 0 18px rgba(208, 0, 255, 0.45);
+}
+
+.operator-panel {
+  background: rgba(13, 13, 17, 0.88);
+  border: 1px solid rgba(208, 0, 255, 0.72);
+  border-radius: 4px;
+}
+
+.operator-cyan-panel {
+  background: rgba(13, 13, 17, 0.9);
+  border: 1px solid rgba(0, 240, 255, 0.75);
+  border-radius: 4px;
+}
+
+@keyframes operatorAttack {
+  0% {
+    transform: translateX(0);
+  }
+  42% {
+    transform: translateX(150px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes combatFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-24px);
+  }
+}

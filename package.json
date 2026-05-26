@@ -1,0 +1,15 @@
+{
+  "name": "operator",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @operator/frontend",
+    "build": "npm run build -w @operator/frontend",
+    "start": "npm run start -w @operator/frontend",
+    "lint": "npm run lint -w @operator/frontend",
+    "typecheck": "npm run typecheck -w @operator/frontend"
+  }
+}

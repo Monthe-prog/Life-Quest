@@ -1,0 +1,43 @@
+# OPERATOR
+
+OPERATOR is a containerized, AI-assisted gamified life-management platform with a cyberpunk command-center interface.
+
+This repository is being built in phased checkpoints. Phase 1 establishes the production-oriented monorepo foundation:
+
+- React frontend via Next.js App Router
+- FastAPI backend with JWT auth boundaries
+- PostgreSQL and Redis service definitions
+- Ollama local LLM service layout
+- Docker Compose orchestration for VPS-friendly deployment
+
+## Services
+
+| Service | Path | Port |
+| --- | --- | --- |
+| Frontend | `apps/frontend` | `3000` |
+| Backend | `apps/backend` | `8000` |
+| PostgreSQL | Docker volume | `5432` |
+| Redis | Docker volume | `6379` |
+| Ollama | Docker volume | `11434` |
+
+## Local Start
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The initial frontend opens at `http://localhost:3000`.
+The backend health endpoint is `http://localhost:8000/health`.
+
+For Oracle AI features, set `OPENAI_API_KEY` in `.env`. Keep this key server-side only.
+
+Phase 9 validation notes live in `docs/phase-9-validation.md`.
+
+## Database Migrations
+
+After the database container is online, run:
+
+```bash
+docker compose exec backend alembic upgrade head
+```
