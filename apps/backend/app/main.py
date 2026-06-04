@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.core.metrics import metrics_middleware, metrics_response
 from app.core.settings import get_settings
 from app.ws.router import router as websocket_router
 
@@ -20,11 +21,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(metrics_middleware)
 
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     return {"status": "online", "service": "operator-backend"}
+
+
+@app.get("/metrics", tags=["system"])
+async def metrics() -> Response:
+    return metrics_response()
 
 
 app.include_router(api_router, prefix="/api")
