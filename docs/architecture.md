@@ -104,4 +104,4 @@ Guilds are layered on top of the single-user core. An operator can belong to one
 
 Oracle AI calls OpenAI from the FastAPI backend through the Responses API. The API key is read from `OPENAI_API_KEY` and is never exposed to the browser. Oracle responses are allowed to be free-form so the RPG voice can stay expressive. If the key is missing or a request fails, the Oracle service returns a degraded deterministic fallback.
 
-The default model is `gpt-5.4-mini` in `.env.example`, chosen as a lower-latency/lower-cost default based on current OpenAI model guidance; it can be changed with `OPENAI_MODEL`.
+The default model is `gpt-5.5` in `.env.example`, chosen as the current recommended flagship default based on OpenAI model guidance; it can be changed with `OPENAI_MODEL`.

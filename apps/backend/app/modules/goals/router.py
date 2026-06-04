@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models import Achievement, ActivityEvent, CharacterProfile, CharacterStat, Goal, User
+from app.models import Achievement, ActivityEvent, BossBattle, CharacterProfile, CharacterStat, Goal, User
 from app.modules.oracle.service import oracle_service
 
 router = APIRouter()
@@ -185,6 +185,19 @@ async def award_completion_reward(db: AsyncSession, user: User, goal: Goal) -> B
             achievement.unlocked_at = datetime.now(timezone.utc)
             achievement_unlocked = achievement.label
             db.add(achievement)
+
+    bosses = await db.scalars(
+        select(BossBattle).where(
+            BossBattle.user_id == user.id,
+            BossBattle.goal_id == goal.id,
+            BossBattle.status == "active",
+        )
+    )
+    for boss in bosses:
+        boss.progress_count = min(boss.required_count, boss.progress_count + 1)
+        if boss.progress_count >= boss.required_count:
+            boss.status = "victory_ready"
+        db.add(boss)
 
     goal.rewarded_at = datetime.now(timezone.utc)
     event_payload = {

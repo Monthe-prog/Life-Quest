@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +44,9 @@ class UserProfile(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     callsign: Mapped[Optional[str]] = mapped_column(String(20), unique=True)
     life_mission: Mapped[Optional[str]] = mapped_column(Text)
+    vision_3_5_year: Mapped[Optional[str]] = mapped_column(Text)
+    one_year_goal: Mapped[Optional[str]] = mapped_column(Text)
+    onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="profile")
 
@@ -112,6 +115,37 @@ class CalendarBlock(Base, TimestampMixin):
     start_hour: Mapped[int] = mapped_column(Integer, nullable=False)
     end_hour: Mapped[int] = mapped_column(Integer, nullable=False)
     source: Mapped[str] = mapped_column(String(32), default="manual", nullable=False)
+    is_recurring: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    recurrence_pattern: Mapped[Optional[str]] = mapped_column(String(80))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    alignment_status: Mapped[str] = mapped_column(String(24), default="unknown", nullable=False)
+
+
+class WeeklyReview(Base, TimestampMixin):
+    __tablename__ = "weekly_reviews"
+    __table_args__ = (UniqueConstraint("user_id", "week_ending", name="uq_weekly_review_user_week"),)
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    week_ending: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    wins: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    friction: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    alignment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    directive: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    completion_rate: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    xp_gained: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class WeeklyReviewExport(Base, TimestampMixin):
+    __tablename__ = "weekly_review_exports"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    review_id: Mapped[Optional[str]] = mapped_column(ForeignKey("weekly_reviews.id", ondelete="SET NULL"))
+    filename: Mapped[str] = mapped_column(String(180), nullable=False)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class CharacterProfile(Base, TimestampMixin):
@@ -161,7 +195,47 @@ class SkillUnlock(Base, TimestampMixin):
     skill_key: Mapped[str] = mapped_column(String(80), nullable=False)
     stat_key: Mapped[str] = mapped_column(String(40), nullable=False)
     required_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    xp_multiplier: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    streak_multiplier: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
     unlocked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class Quest(Base, TimestampMixin):
+    __tablename__ = "quests"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    skill_key: Mapped[Optional[str]] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    reward_xp: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class QuestStep(Base, TimestampMixin):
+    __tablename__ = "quest_steps"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    quest_id: Mapped[str] = mapped_column(ForeignKey("quests.id", ondelete="CASCADE"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class BossBattle(Base, TimestampMixin):
+    __tablename__ = "boss_battles"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    goal_id: Mapped[Optional[str]] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    required_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    progress_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reward_xp: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="active", nullable=False)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class Guild(Base, TimestampMixin):
@@ -190,6 +264,44 @@ class GuildInviteCode(Base, TimestampMixin):
     guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
     code: Mapped[str] = mapped_column(String(6), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class GuildChatMessage(Base, TimestampMixin):
+    __tablename__ = "guild_chat_messages"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    goal_id: Mapped[Optional[str]] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"))
+    hidden_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    hidden_by_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    top_emoji: Mapped[Optional[str]] = mapped_column(String(16))
+    top_emoji_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    previous_top_emoji: Mapped[Optional[str]] = mapped_column(String(16))
+    previous_top_emoji_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    trend_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class GuildChatReaction(Base, TimestampMixin):
+    __tablename__ = "guild_chat_reactions"
+    __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_guild_message_user_reaction"),)
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    message_id: Mapped[str] = mapped_column(ForeignKey("guild_chat_messages.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    emoji: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
+class GuildModerationEvent(Base, TimestampMixin):
+    __tablename__ = "guild_moderation_events"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    target_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class ActivityEvent(Base, TimestampMixin):

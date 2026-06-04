@@ -15,9 +15,9 @@ venv/
 .env.*.local
 *.pyc
 *.pyo
+*.tsbuildinfo
 *.log
 coverage/
 htmlcov/
 .DS_Store
 Thumbs.db
-

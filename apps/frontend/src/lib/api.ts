@@ -50,6 +50,10 @@ export type CalendarBlock = {
   start_hour: number;
   end_hour: number;
   source: "manual" | "oracle_suggested" | string;
+  is_recurring: boolean;
+  recurrence_pattern: string | null;
+  completed: boolean;
+  alignment_status: string;
 };
 
 export type CharacterClass = "Cyber-Monk" | "Netrunner" | "Dreadnought";
@@ -117,12 +121,74 @@ export type OracleReply = {
   response: string;
   provider: string;
   degraded: boolean;
+  error?: string | null;
 };
 
 export type OracleStatus = {
   provider: string;
   configured: boolean;
   model: string;
+  error?: string | null;
+};
+
+export type OnboardingState = {
+  life_mission: string;
+  vision_3_5_year: string;
+  one_year_goal: string;
+  monthly_goals: string[];
+  character_class: CharacterClass | null;
+  completed: boolean;
+};
+
+export type WeeklyReview = {
+  id: string;
+  week_ending: string;
+  wins: string;
+  friction: string;
+  alignment: string;
+  directive: string;
+  completion_rate: number;
+  xp_gained: number;
+  streak: number;
+  locked: boolean;
+  updated_at: string;
+};
+
+export type WeeklyReviewExport = {
+  id: string;
+  filename: string;
+  settings: Record<string, unknown>;
+  created_at: string;
+};
+
+export type QuestStep = {
+  id: string;
+  title: string;
+  completed: boolean;
+};
+
+export type Quest = {
+  id: string;
+  title: string;
+  description: string;
+  skill_key: string | null;
+  status: string;
+  reward_xp: number;
+  claimed: boolean;
+  expires_at: string | null;
+  steps: QuestStep[];
+};
+
+export type BossBattle = {
+  id: string;
+  title: string;
+  goal_id: string | null;
+  required_count: number;
+  progress_count: number;
+  reward_xp: number;
+  status: string;
+  percent_complete: number;
+  claimed: boolean;
 };
 
 async function apiRequest<T>(path: string, options: RequestInit = {}) {
@@ -271,7 +337,16 @@ export function getCalendarWeek(accessToken: string) {
 
 export function createCalendarBlock(
   accessToken: string,
-  payload: { title: string; day_of_week: number; start_hour: number; end_hour: number; goal_id?: string | null }
+  payload: {
+    title: string;
+    day_of_week: number;
+    start_hour: number;
+    end_hour: number;
+    goal_id?: string | null;
+    is_recurring?: boolean;
+    recurrence_pattern?: string | null;
+    alignment_status?: string;
+  }
 ) {
   return apiRequest<CalendarBlock>("/api/calendar/blocks", {
     method: "POST",
@@ -279,6 +354,38 @@ export function createCalendarBlock(
       Authorization: `Bearer ${accessToken}`
     },
     body: JSON.stringify(payload)
+  });
+}
+
+export function updateCalendarBlock(
+  accessToken: string,
+  blockId: string,
+  payload: Partial<{
+    title: string;
+    day_of_week: number;
+    start_hour: number;
+    end_hour: number;
+    goal_id: string | null;
+    is_recurring: boolean;
+    recurrence_pattern: string | null;
+    alignment_status: string;
+  }>
+) {
+  return apiRequest<CalendarBlock>(`/api/calendar/blocks/${blockId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function completeCalendarBlock(accessToken: string, blockId: string) {
+  return apiRequest<CalendarBlock>(`/api/calendar/blocks/${blockId}/complete`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
   });
 }
 
@@ -385,5 +492,125 @@ export function interrogateOracle(accessToken: string, message: string, context:
       Authorization: `Bearer ${accessToken}`
     },
     body: JSON.stringify({ message, context })
+  });
+}
+
+export function getOnboardingState(accessToken: string) {
+  return apiRequest<OnboardingState>("/api/onboarding/state", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function saveOnboardingState(accessToken: string, payload: Omit<OnboardingState, "completed">) {
+  return apiRequest<OnboardingState>("/api/onboarding/state", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function getLatestWeeklyReview(accessToken: string) {
+  return apiRequest<WeeklyReview | null>("/api/weekly-reviews/latest", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function listWeeklyReviews(accessToken: string) {
+  return apiRequest<WeeklyReview[]>("/api/weekly-reviews", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function saveWeeklyReview(
+  accessToken: string,
+  payload: {
+    week_ending: string;
+    wins: string;
+    friction: string;
+    alignment: string;
+    directive: string;
+    completion_rate: number;
+    xp_gained: number;
+    streak: number;
+    lock: boolean;
+  }
+) {
+  return apiRequest<WeeklyReview>("/api/weekly-reviews", {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function deleteWeeklyReview(accessToken: string, reviewId: string) {
+  return apiRequest<void>(`/api/weekly-reviews/${reviewId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function exportWeeklyReviews(accessToken: string, reviewIds: string[], sections: string[]) {
+  return apiRequest<WeeklyReviewExport>("/api/weekly-reviews/exports", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({ review_ids: reviewIds, sections })
+  });
+}
+
+export function listWeeklyReviewExports(accessToken: string) {
+  return apiRequest<WeeklyReviewExport[]>("/api/weekly-reviews/exports", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function listQuests(accessToken: string) {
+  return apiRequest<Quest[]>("/api/quests", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function createQuest(accessToken: string, payload: { title: string; description?: string; steps: string[]; reward_xp?: number }) {
+  return apiRequest<Quest>("/api/quests", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function completeQuestStep(accessToken: string, questId: string, stepId: string) {
+  return apiRequest<Quest>(`/api/quests/${questId}/steps/${stepId}/complete`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function claimQuest(accessToken: string, questId: string) {
+  return apiRequest<Quest>(`/api/quests/${questId}/claim`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
   });
 }
