@@ -23,14 +23,17 @@ Optional E2E tests can be added later with Playwright once browser flows are sta
 From the repo root:
 
 ```bash
-cd apps/backend
-python -m pytest
+npm run test:backend
 ```
 
-Or:
+This runs the backend tests inside Docker so FastAPI, SQLAlchemy, httpx, and the other application dependencies are installed from `apps/backend/requirements.txt`.
+
+Local Python option:
 
 ```bash
-npm run test:backend
+cd apps/backend
+python -m pip install -r requirements.txt
+python -m pytest
 ```
 
 Coverage report:
@@ -67,5 +70,5 @@ Capture:
 
 1. `python -m pytest` showing all tests passing.
 2. Terminal coverage summary showing coverage above 80%.
-3. `apps/backend/htmlcov/index.html` opened in a browser.
+3. `apps/backend/test-results/htmlcov/index.html` opened in a browser.
 4. Jenkins console output after adding/running the test command in the CI pipeline.
