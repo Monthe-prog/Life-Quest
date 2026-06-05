@@ -10,7 +10,7 @@ spec:
       containers:
         - name: migrate
           image: ghcr.io/monthe-prog/life-quest-backend:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           command:
             - alembic
             - upgrade
@@ -52,7 +52,7 @@ spec:
       containers:
         - name: backend
           image: ghcr.io/monthe-prog/life-quest-backend:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           envFrom:
