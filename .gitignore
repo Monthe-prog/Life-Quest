@@ -13,6 +13,7 @@ venv/
 .env
 .env.local
 .env.*.local
+infra/kubernetes/secret.yaml
 *.pyc
 *.pyo
 *.tsbuildinfo

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operator-config
+  namespace: operator
+data:
+  BACKEND_CORS_ORIGINS: "http://158.220.90.106"
+  REDIS_URL: "redis://redis:6379/0"
+  JWT_ACCESS_TOKEN_MINUTES: "15"
+  JWT_REFRESH_TOKEN_DAYS: "30"
+  OLLAMA_BASE_URL: "http://ollama-service:11434"
+  OLLAMA_MODEL: "llama3"
+  OPENAI_MODEL: "gpt-5.4-mini"
+  NEXT_PUBLIC_API_BASE_URL: "http://158.220.90.106"
+  NEXT_PUBLIC_WS_BASE_URL: "ws://158.220.90.106"
