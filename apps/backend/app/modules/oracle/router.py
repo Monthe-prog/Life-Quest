@@ -23,7 +23,6 @@ class OracleResponse(BaseModel):
     response: str
     provider: str
     degraded: bool
-    error: str | None = None
 
 
 class BreakdownPrompt(BaseModel):
@@ -37,7 +36,6 @@ class BreakdownResponse(BaseModel):
     tasks: list[str]
     provider: str
     degraded: bool
-    error: str | None = None
 
 
 @router.get("/status")
@@ -46,7 +44,6 @@ async def status(user: Annotated[User, Depends(get_current_user)]) -> dict[str, 
         "provider": "openai" if oracle_service.configured else "fallback",
         "configured": oracle_service.configured,
         "model": oracle_service.settings.openai_model,
-        "error": "" if oracle_service.configured else "missing_openai_api_key",
     }
 
 
@@ -70,7 +67,7 @@ async def interrogate(
         )
     )
     await db.commit()
-    return OracleResponse(response=result.text, provider=result.provider, degraded=result.degraded, error=result.error)
+    return OracleResponse(response=result.text, provider=result.provider, degraded=result.degraded)
 
 
 @router.post("/breakdown-goal", response_model=BreakdownResponse)
@@ -84,7 +81,6 @@ async def breakdown_goal(
         tasks=oracle_service.parse_tasks(result.text, payload.title),
         provider=result.provider,
         degraded=result.degraded,
-        error=result.error,
     )
 
 
@@ -96,4 +92,4 @@ async def schedule_review(
     result = await oracle_service.generate(
         "Review this weekly schedule and suggest sharper execution order:\n\n" + payload.message
     )
-    return OracleResponse(response=result.text, provider=result.provider, degraded=result.degraded, error=result.error)
+    return OracleResponse(response=result.text, provider=result.provider, degraded=result.degraded)

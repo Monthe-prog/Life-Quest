@@ -14,6 +14,7 @@ import {
   Globe2,
   Heart,
   Home,
+  Info,
   Lock,
   LogOut,
   Minus,
@@ -82,7 +83,7 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 
-type View = "HOME" | "GOALS" | "CALENDAR" | "REVIEW" | "CHARACTER" | "GUILD";
+type View = "HOME" | "GOALS" | "CALENDAR" | "REVIEW" | "CHARACTER" | "GUILD" | "ABOUT";
 
 const navItems: { label: View; icon: typeof Home }[] = [
   { label: "HOME", icon: Home },
@@ -90,7 +91,23 @@ const navItems: { label: View; icon: typeof Home }[] = [
   { label: "CALENDAR", icon: CalendarDays },
   { label: "REVIEW", icon: BookOpen },
   { label: "CHARACTER", icon: UserRound },
-  { label: "GUILD", icon: Shield }
+  { label: "GUILD", icon: Shield },
+  { label: "ABOUT", icon: Info }
+];
+
+const developers = [
+  {
+    name: "Yann Aymerick Atsa Atsa",
+    role: "Scrum Master + Frontend Lead",
+    image:
+      "https://scontent-los4-1.xx.fbcdn.net/v/t39.30808-1/396287513_312706138148572_7324980911721982528_n.jpg?stp=dst-jpg_s200x200_tt6&_nc_cat=102&ccb=1-7&_nc_sid=e99d92&_nc_eui2=AeFAfrVmq1j4R/dQm_skI1AzcdNuxzUNrDJ1027HNQ2sMnUFLW2-niWjGxxDeNrLYP9aBFnoGFiXgUmsvVYiV1jg2&_nc_ohc=IKH2NfQUMn8Q7kNvwHEp8qG&_nc_oc=AdojM2_nTDgCT2usmlT8tdDEtqw-fOGCJeJmYcSohttVJRJsYw65CxWqh4oaAjJcpJc&_nc_zt=24&_nc_ht=scontent-los4-1.xx&_nc_gid=Rsd7vwUpJVheF6ThRg6njw&_nc_ss=7b2a8&oh=00_Af_oIRnfEIETB-u-jnHwoO2qD4YRJe-8CLH2f_dH2j9LoQ&oe=6A28E533"
+  },
+  {
+    name: "Monthe Joseph Christian",
+    role: "Product Owner + Backend Lead",
+    image:
+      "https://scontent-los4-1.xx.fbcdn.net/v/t39.30808-6/643864765_122277132314033125_3220683603402811466_n.jpg?_nc_cat=109&ccb=1-7&_nc_sid=6ee11a&_nc_eui2=AeECwSHSsJXianuMvYeWNsedNt1O0Qz92GY23U7RDP3YZnGoTKx3ga1FGTMPhaqWvhSfuF0quVd-FEYGGsWW8q10&_nc_ohc=rzgJF8Jc658Q7kNvwHAeWqi&_nc_oc=Adp08Bx4Yhr4rM6siUFlq1kJL8jOzp7xrd2BfnYuDabZ-J5SrUCDc7qd4t4fitrvNmE&_nc_zt=23&_nc_ht=scontent-los4-1.xx&_nc_gid=OZdn7qevPrs8aLSSE12GQQ&_nc_ss=7b2a8&oh=00_Af9EXAwAL1kJ0zRrSllyewmSjrkeHI3hhvGIsVjhUza90Q&oe=6A28E2D5"
+  }
 ];
 
 const goalSections: { horizon: GoalHorizon; title: string; prompt: string; child?: GoalHorizon }[] = [
@@ -300,10 +317,11 @@ function Shell({
         {activeView === "REVIEW" && <WeeklyReviewView accessToken={accessToken} playSound={playSound} />}
         {activeView === "CHARACTER" && <CharacterView accessToken={accessToken} battleEvent={battleEvent} playSound={playSound} />}
         {activeView === "GUILD" && <GuildView accessToken={accessToken} playSound={playSound} />}
+        {activeView === "ABOUT" && <AboutView />}
       </section>
 
       <nav className="fixed inset-x-0 bottom-0 border-t border-operator-purple/65 bg-[#08080b]/95">
-        <div className="mx-auto grid max-w-3xl grid-cols-6">
+        <div className="mx-auto grid max-w-3xl grid-cols-7">
           {navItems.map(({ label, icon: Icon }) => (
             <button
               className={`flex flex-col items-center gap-1 px-2 py-3 text-[11px] uppercase ${
@@ -446,6 +464,41 @@ function HomeView({
         </div>
       </section>
     </>
+  );
+}
+
+function AboutView() {
+  return (
+    <section className="space-y-5">
+      <div className="operator-panel p-5">
+        <p className="text-xs uppercase tracking-[0.28em] text-operator-cyan">Project Team</p>
+        <h2 className="operator-glow mt-2 text-3xl uppercase">About OPERATOR</h2>
+        <p className="mt-3 text-sm leading-6 text-white/65">
+          OPERATOR / Life Quest was designed as an AI-assisted gamified life-management platform for the Software Architecture project.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {developers.map((developer) => (
+          <article className="border border-operator-purple/70 bg-operator-surface p-5" key={developer.name}>
+            <div className="flex items-center gap-4">
+              <div className="relative h-24 w-24 shrink-0 overflow-hidden border border-operator-cyan bg-black">
+                <img
+                  alt={developer.name}
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  src={developer.image}
+                />
+              </div>
+              <div className="min-w-0">
+                <h3 className="operator-glow break-words text-xl uppercase leading-tight">{developer.name}</h3>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-operator-cyan">{developer.role}</p>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1784,11 +1837,7 @@ function GuildView({
   }, [accessToken]);
 
   useEffect(() => {
-    const wsBase =
-      process.env.NEXT_PUBLIC_WS_BASE_URL ??
-      (typeof window !== "undefined"
-        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`
-        : "ws://localhost:8000");
+    const wsBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
     const socket = new WebSocket(`${wsBase}/ws/guild-feed?token=${encodeURIComponent(accessToken)}`);
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data);

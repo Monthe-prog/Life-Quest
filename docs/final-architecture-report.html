@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OPERATOR / Life Quest Final Architecture Report</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #050507;
+        --surface: #0d0d11;
+        --purple: #d000ff;
+        --cyan: #00f0ff;
+        --text: #f7f5ff;
+        --muted: #aaa3b8;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", Arial, sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 48px 28px;
+      }
+      h1,
+      h2,
+      h3 {
+        color: white;
+        letter-spacing: 0.03em;
+      }
+      h1 {
+        border-bottom: 2px solid var(--purple);
+        padding-bottom: 16px;
+        text-transform: uppercase;
+      }
+      h2 {
+        border-left: 4px solid var(--cyan);
+        margin-top: 42px;
+        padding-left: 12px;
+      }
+      h3 {
+        color: var(--cyan);
+      }
+      p,
+      li {
+        color: var(--text);
+      }
+      .meta,
+      .note {
+        background: var(--surface);
+        border: 1px solid var(--purple);
+        padding: 16px;
+      }
+      .diagram {
+        margin: 22px 0 34px;
+        padding: 16px;
+        background: #030305;
+        border: 1px solid var(--purple);
+      }
+      .diagram img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      strong {
+        color: var(--cyan);
+      }
+      ul {
+        padding-left: 24px;
+      }
+      @media print {
+        body {
+          background: white;
+          color: #111;
+        }
+        main {
+          max-width: none;
+          padding: 0;
+        }
+        h1,
+        h2,
+        h3,
+        p,
+        li,
+        strong {
+          color: #111;
+        }
+        .meta,
+        .note,
+        .diagram {
+          border-color: #555;
+          background: white;
+          break-inside: avoid;
+        }
+        h2 {
+          break-after: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>OPERATOR / Life Quest Final Architecture Report</h1>
+      <section class="meta">
+        <p><strong>Section:</strong> Architecture Structures and Characteristics</p>
+        <p><strong>Architecture Style:</strong> Layered Modular Monolith deployed as containerized services</p>
+        <p><strong>Stack:</strong> Next.js, FastAPI, PostgreSQL, Redis, OpenAI API, Docker, Nginx, Prometheus, Grafana</p>
+      </section>
+
+      <h2>1. Project Overview</h2>
+      <p>
+        OPERATOR, also called Life Quest, is a full-stack AI-assisted gamified life-management platform. It helps users
+        transform long-term ambitions into structured goals, actionable tasks, weekly reviews, scheduled calendar blocks,
+        RPG-style XP progression, quests, boss battles, and guild accountability.
+      </p>
+
+      <h2>2. Architecture Style Identification</h2>
+      <p>
+        The selected architectural style is a <strong>Layered Modular Monolith with Service-Oriented Container Deployment</strong>.
+        Internally, the backend is divided into feature modules. Externally, the system is deployed as separate containers
+        for frontend, backend, database, cache, reverse proxy, and monitoring.
+      </p>
+
+      <h2>3. Justification of Architecture Style</h2>
+      <p>
+        OPERATOR has many features, but they are closely related around a single user identity, goal system, progression
+        engine, and life-management workflow. A full microservices architecture would add unnecessary complexity at this
+        stage. The modular monolith gives maintainability, simpler deployment, easier testing, and a clear future path to
+        service extraction.
+      </p>
+
+      <h2>4. Key Architectural Structures</h2>
+      <h3>4.1 Component View</h3>
+      <p>
+        The component diagram shows the major runtime components. The Next.js frontend communicates with the FastAPI
+        backend. The backend coordinates feature modules and connects to PostgreSQL, Redis, and OpenAI.
+      </p>
+      <figure class="diagram">
+        <img src="diagrams/component-diagram.png" alt="OPERATOR Component Diagram" />
+      </figure>
+
+      <h3>4.2 Module View</h3>
+      <p>
+        The module view shows backend organization. The API layer routes requests to modules such as auth, onboarding,
+        goals, calendar, Oracle, character, weekly reviews, quests, and guilds.
+      </p>
+      <figure class="diagram">
+        <img src="diagrams/backend-module-view.png" alt="OPERATOR Backend Module View" />
+      </figure>
+
+      <h3>4.3 Deployment View</h3>
+      <p>
+        The deployment diagram shows how OPERATOR can run on a VPS or Docker host. Nginx accepts HTTPS traffic and routes
+        to frontend/backend services. PostgreSQL and Redis run as data services, and Prometheus/Grafana provide monitoring.
+      </p>
+      <figure class="diagram">
+        <img src="diagrams/deployment-diagram.png" alt="OPERATOR Deployment Diagram" />
+      </figure>
+
+      <h3>4.4 Sequence View</h3>
+      <p>
+        The sequence diagram explains the Oracle goal breakdown workflow. It demonstrates authentication, goal ownership
+        validation, database access, AI orchestration, preview generation, and persistence of accepted child goals.
+      </p>
+      <figure class="diagram">
+        <img src="diagrams/oracle-goal-breakdown-sequence.png" alt="Oracle Goal Breakdown Sequence Diagram" />
+      </figure>
+
+      <h2>5. Quality Attributes</h2>
+      <ul>
+        <li><strong>Security:</strong> JWT authentication, password hashing, protected routes, backend-only OpenAI key usage, ownership checks, and guild moderation.</li>
+        <li><strong>Performance:</strong> FastAPI endpoints, PostgreSQL indexing, Redis-ready caching, and isolated AI requests.</li>
+        <li><strong>Scalability:</strong> Containerized services, Redis support, Kubernetes-ready deployment boundaries, and backend horizontal scaling potential.</li>
+        <li><strong>Maintainability:</strong> Feature modules, central API routing, Alembic migrations, and clear frontend API helpers.</li>
+        <li><strong>Reliability:</strong> Persistent PostgreSQL storage, Docker volumes, health endpoints, and monitoring readiness.</li>
+        <li><strong>Usability:</strong> Cyberpunk command-center interface, bottom navigation, Oracle terminal, calendar planner, and RPG progression feedback.</li>
+      </ul>
+
+      <h2>6. Trade-Off Analysis</h2>
+      <ul>
+        <li><strong>Simplicity vs Independent Scalability:</strong> The modular monolith is easier to build but cannot scale individual modules independently.</li>
+        <li><strong>AI Capability vs Cost:</strong> OpenAI improves planning and coaching but introduces cost and latency.</li>
+        <li><strong>Strong Consistency vs Flexibility:</strong> PostgreSQL gives consistency while JSONB supports flexible AI/export data.</li>
+        <li><strong>Gamification vs Complexity:</strong> XP, quests, skills, and boss battles increase motivation but require careful business logic boundaries.</li>
+      </ul>
+
+      <h2>7. Pros and Cons</h2>
+      <h3>Pros</h3>
+      <ul>
+        <li>Easier to develop and debug than microservices.</li>
+        <li>Clear module boundaries.</li>
+        <li>Strong database consistency through PostgreSQL.</li>
+        <li>Practical Docker/VPS deployment.</li>
+        <li>Redis supports future realtime features.</li>
+        <li>OpenAI key remains protected on the backend.</li>
+      </ul>
+      <h3>Cons</h3>
+      <ul>
+        <li>Backend can become large if modules are not maintained.</li>
+        <li>Backend failure affects all backend features.</li>
+        <li>Individual feature modules cannot be deployed independently yet.</li>
+        <li>AI calls may introduce latency and cost.</li>
+        <li>Realtime guild chat may eventually need stronger event-driven infrastructure.</li>
+      </ul>
+
+      <h2>8. Architecture Design Process</h2>
+      <ol>
+        <li><strong>Project Description:</strong> AI-assisted life-management platform with gamification and guild accountability.</li>
+        <li><strong>Requirements Identification:</strong> Authentication, onboarding, goal management, AI breakdown, scheduling, reviews, XP, quests, guilds, and monitoring readiness.</li>
+        <li><strong>Component Identification:</strong> Frontend, backend, PostgreSQL, Redis, OpenAI API, Nginx, Docker, Prometheus, and Grafana.</li>
+        <li><strong>Back-of-the-Envelope Estimation:</strong> A 2-4 vCPU, 4-8 GB RAM VPS can support early use; AI calls should be rate-limited.</li>
+        <li><strong>Style Selection:</strong> Layered modular monolith because it balances simplicity and maintainability.</li>
+        <li><strong>Architecture Design:</strong> Frontend calls backend; backend modules handle domain logic; PostgreSQL persists data; Redis supports realtime/cache; OpenAI powers Oracle.</li>
+        <li><strong>Analysis and Improvement:</strong> Add more tests, Jenkins, Kubernetes, Ansible, monitoring dashboards, frontend modularization, and AI rate limits.</li>
+      </ol>
+
+      <h2>9. Conclusion</h2>
+      <p>
+        OPERATOR demonstrates strong architectural thinking through layered separation, modular backend design,
+        containerized deployment, AI integration, and clear quality-attribute trade-offs. The chosen architecture is
+        appropriate for the current project stage and can evolve as the application grows.
+      </p>
+    </main>
+  </body>
+</html>

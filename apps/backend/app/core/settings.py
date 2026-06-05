@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = Field(default="http://ollama-service:11434")
     ollama_model: str = Field(default="llama3")
     openai_api_key: str | None = Field(default=None)
-    openai_model: str = Field(default="gpt-5.5")
+    openai_model: str = Field(default="gpt-5.4-mini")
 
     @property
     def cors_origins(self) -> list[str]:

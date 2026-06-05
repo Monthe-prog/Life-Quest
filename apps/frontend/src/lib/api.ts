@@ -1,4 +1,4 @@
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export type TokenPair = {
   access_token: string;
@@ -121,14 +121,12 @@ export type OracleReply = {
   response: string;
   provider: string;
   degraded: boolean;
-  error?: string | null;
 };
 
 export type OracleStatus = {
   provider: string;
   configured: boolean;
   model: string;
-  error?: string | null;
 };
 
 export type OnboardingState = {

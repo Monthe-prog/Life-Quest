@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import json
-import logging
 from dataclasses import dataclass
 
 import httpx
 
 from app.core.settings import get_settings
 
-
-logger = logging.getLogger(__name__)
 
 ORACLE_INSTRUCTIONS = """
 You are the Oracle inside OPERATOR, a cyberpunk life-management RPG.
@@ -37,7 +34,12 @@ class OracleService:
 
     async def generate(self, prompt: str, instructions: str | None = None) -> OracleResult:
         if not self.configured:
-            return OracleResult(text=self.fallback(prompt), provider="fallback", degraded=True, error="missing_openai_api_key")
+            return OracleResult(
+                text=self.fallback(prompt),
+                provider="fallback",
+                degraded=True,
+                error="missing_openai_api_key",
+            )
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -54,13 +56,13 @@ class OracleService:
                     },
                 )
                 response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            error = f"openai_http_{exc.response.status_code}"
-            logger.warning("Oracle OpenAI request failed with status %s: %s", exc.response.status_code, exc.response.text[:500])
-            return OracleResult(text=self.fallback(prompt), provider="fallback", degraded=True, error=error)
-        except httpx.HTTPError as exc:
-            logger.warning("Oracle OpenAI request failed: %s", exc)
-            return OracleResult(text=self.fallback(prompt), provider="fallback", degraded=True, error="openai_request_failed")
+        except httpx.HTTPError:
+            return OracleResult(
+                text=self.fallback(prompt),
+                provider="fallback",
+                degraded=True,
+                error="openai_request_failed",
+            )
 
         payload = response.json()
         return OracleResult(text=self.extract_text(payload), provider="openai", degraded=False)
