@@ -19,5 +19,6 @@ venv/
 *.log
 coverage/
 htmlcov/
+test-results/
 .DS_Store
 Thumbs.db

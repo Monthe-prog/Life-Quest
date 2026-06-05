@@ -10,6 +10,9 @@
     "build": "npm run build -w @operator/frontend",
     "start": "npm run start -w @operator/frontend",
     "lint": "npm run lint -w @operator/frontend",
-    "typecheck": "npm run typecheck -w @operator/frontend"
+    "typecheck": "npm run typecheck -w @operator/frontend",
+    "test": "npm run test:backend",
+    "test:backend": "cd apps/backend && python -m pytest",
+    "coverage:backend": "cd apps/backend && python -m pytest --cov-report=term-missing --cov-report=html"
   }
 }

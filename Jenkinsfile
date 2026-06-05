@@ -51,6 +51,19 @@ pipeline {
       }
     }
 
+    stage('Backend Coverage') {
+      steps {
+        sh 'mkdir -p apps/backend/test-results'
+        sh 'docker compose run --rm --no-deps -v "$PWD/apps/backend/test-results:/app/apps/backend/test-results" backend python -m pytest'
+      }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: 'apps/backend/test-results/pytest.xml'
+          archiveArtifacts allowEmptyArchive: true, artifacts: 'apps/backend/test-results/**'
+        }
+      }
+    }
+
     stage('Deploy') {
       when {
         branch 'main'
