@@ -1,0 +1,38 @@
+groups:
+  - name: operator-alerts
+    rules:
+      - alert: OperatorBackendDown
+        expr: up{job="operator-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: OPERATOR backend is down
+          description: Prometheus cannot scrape the backend /metrics endpoint.
+
+      - alert: OperatorHighErrorRate
+        expr: sum(rate(operator_http_requests_total{status=~"5.."}[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: OPERATOR backend is returning server errors
+          description: One or more 5xx responses were observed over the last five minutes.
+
+      - alert: HostHighCpuUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: VPS CPU usage is high
+          description: CPU usage has stayed above 85 percent for five minutes.
+
+      - alert: HostLowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: VPS disk space is low
+          description: Root filesystem free space is below 15 percent.

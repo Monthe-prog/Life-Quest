@@ -21,6 +21,7 @@ class OracleResult:
     text: str
     provider: str
     degraded: bool = False
+    error: str | None = None
 
 
 class OracleService:
@@ -33,7 +34,12 @@ class OracleService:
 
     async def generate(self, prompt: str, instructions: str | None = None) -> OracleResult:
         if not self.configured:
-            return OracleResult(text=self.fallback(prompt), provider="fallback", degraded=True)
+            return OracleResult(
+                text=self.fallback(prompt),
+                provider="fallback",
+                degraded=True,
+                error="missing_openai_api_key",
+            )
 
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -51,7 +57,12 @@ class OracleService:
                 )
                 response.raise_for_status()
         except httpx.HTTPError:
-            return OracleResult(text=self.fallback(prompt), provider="fallback", degraded=True)
+            return OracleResult(
+                text=self.fallback(prompt),
+                provider="fallback",
+                degraded=True,
+                error="openai_request_failed",
+            )
 
         payload = response.json()
         return OracleResult(text=self.extract_text(payload), provider="openai", degraded=False)
