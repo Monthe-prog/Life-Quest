@@ -40,6 +40,7 @@ import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } fro
 import {
   changeGoalProgress,
   acceptOracleBreakdown,
+  compareWeeklyReviews,
   completeCalendarBlock,
   createCalendarBlock,
   deleteWeeklyReview,
@@ -92,6 +93,9 @@ import {
   type OracleReply,
   type OracleStatus,
   type ModerationEvent,
+  type WeeklyReview,
+  type WeeklyReviewCompare,
+  type WeeklyReviewExport,
   updateGuildMemberRole,
   updateLeaderboardPrivacy,
   updateCharacterCustomizer
@@ -637,7 +641,7 @@ function currentSunday() {
   return sunday.toISOString().slice(0, 10);
 }
 
-function emptyReview(): Omit<WeeklyReview, "id" | "locked" | "updated_at"> {
+function emptyReview(): Omit<WeeklyReview, "id" | "locked" | "updated_at" | "summary"> {
   return {
     week_ending: currentSunday(),
     wins: "",
@@ -665,6 +669,8 @@ function WeeklyReviewView({
   const [archive, setArchive] = useState<WeeklyReview[]>([]);
   const [exports, setExports] = useState<WeeklyReviewExport[]>([]);
   const [sections, setSections] = useState(["wins", "friction", "alignment", "directive", "metrics"]);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<string[]>([]);
+  const [compareResult, setCompareResult] = useState<WeeklyReviewCompare | null>(null);
   const [statusText, setStatusText] = useState("Loading review channel...");
 
   async function refreshReviews() {
@@ -736,16 +742,31 @@ function WeeklyReviewView({
   }
 
   async function exportCurrent() {
-    if (!activeId) {
+    const reviewIds = selectedArchiveIds.length > 0 ? selectedArchiveIds : activeId ? [activeId] : [];
+    if (reviewIds.length === 0) {
       setStatusText("Save the ceremony before exporting");
       return;
     }
     try {
-      const result = await exportWeeklyReviews(accessToken, [activeId], sections);
+      const result = await exportWeeklyReviews(accessToken, reviewIds, sections);
       setExports((current) => [result, ...current]);
       setStatusText(`Export registered: ${result.filename}`);
     } catch (err) {
       setStatusText(err instanceof Error ? err.message : "Export failed");
+    }
+  }
+
+  async function compareSelected() {
+    if (selectedArchiveIds.length !== 2) {
+      setStatusText("Select exactly two ceremonies to compare");
+      return;
+    }
+    try {
+      const result = await compareWeeklyReviews(accessToken, selectedArchiveIds[0], selectedArchiveIds[1]);
+      setCompareResult(result);
+      setStatusText("Comparison loaded");
+    } catch (err) {
+      setStatusText(err instanceof Error ? err.message : "Compare failed");
     }
   }
 
@@ -828,11 +849,20 @@ function WeeklyReviewView({
         ))}
       </div>
 
+      {activeId && (
+        <section className="operator-cyan-panel p-4">
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Oracle Summary</h3>
+          <p className="mt-3 text-sm leading-6 text-white/70">
+            {archive.find((review) => review.id === activeId)?.summary || "Save or lock this ceremony to generate a weekly summary."}
+          </p>
+        </section>
+      )}
+
       <div className="border border-operator-cyan/60 bg-operator-surface p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="operator-glow text-xl uppercase">Export Settings</h3>
           <button className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan" onClick={exportCurrent}>
-            Export PDF
+            Export PDF{selectedArchiveIds.length > 1 ? ` x${selectedArchiveIds.length}` : ""}
           </button>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -854,20 +884,44 @@ function WeeklyReviewView({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="border border-operator-purple/60 bg-operator-surface p-4">
-          <h3 className="operator-glow text-xl uppercase">Review Archive</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="operator-glow text-xl uppercase">Review Archive</h3>
+            <button className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan" onClick={compareSelected}>
+              Compare
+            </button>
+          </div>
           <div className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
             {archive.map((review) => (
               <div className="flex items-center justify-between border border-white/10 p-3" key={review.id}>
-                <button className="text-left text-sm uppercase text-white" onClick={() => loadReview(review)}>
-                  {review.week_ending} / {review.completion_rate}%
-                </button>
-                <button className="text-red-300" onClick={() => removeReview(review.id)} title="Delete review">
+                <div className="flex min-w-0 items-center gap-3">
+                  <input
+                    checked={selectedArchiveIds.includes(review.id)}
+                    className="h-4 w-4 accent-cyan-300"
+                    type="checkbox"
+                    onChange={(event) =>
+                      setSelectedArchiveIds((current) =>
+                        event.target.checked ? [...current, review.id].slice(-2) : current.filter((id) => id !== review.id)
+                      )
+                    }
+                  />
+                  <button className="min-w-0 text-left text-sm uppercase text-white" onClick={() => loadReview(review)}>
+                    {review.week_ending} / {review.completion_rate}%
+                  </button>
+                </div>
+                <button className="shrink-0 text-red-300" onClick={() => removeReview(review.id)} title="Delete review">
                   <Trash2 size={16} />
                 </button>
               </div>
             ))}
             {archive.length === 0 && <p className="text-sm text-white/45">No saved ceremonies yet.</p>}
           </div>
+          {compareResult && (
+            <div className="mt-4 grid gap-2 text-xs uppercase sm:grid-cols-3">
+              <StatTile label="Completion Delta" value={`${compareResult.completion_rate_delta > 0 ? "+" : ""}${compareResult.completion_rate_delta}%`} />
+              <StatTile label="XP Delta" value={`${compareResult.xp_gained_delta > 0 ? "+" : ""}${compareResult.xp_gained_delta}`} />
+              <StatTile label="Streak Delta" value={`${compareResult.streak_delta > 0 ? "+" : ""}${compareResult.streak_delta}`} />
+            </div>
+          )}
         </div>
         <div className="border border-operator-cyan/60 bg-operator-surface p-4">
           <h3 className="operator-glow text-xl uppercase">Export History</h3>
@@ -888,10 +942,14 @@ function WeeklyReviewView({
 
 function CalendarView({ accessToken }: { accessToken: string }) {
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [title, setTitle] = useState("");
   const [day, setDay] = useState(0);
   const [startHour, setStartHour] = useState(7);
   const [endHour, setEndHour] = useState(8);
+  const [selectedGoalId, setSelectedGoalId] = useState("");
+  const [selectedBlock, setSelectedBlock] = useState<CalendarBlock | null>(null);
+  const [dragPayload, setDragPayload] = useState<string | null>(null);
   const [editBlockId, setEditBlockId] = useState<string | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
   const [alignmentStatus, setAlignmentStatus] = useState("unknown");
@@ -899,8 +957,9 @@ function CalendarView({ accessToken }: { accessToken: string }) {
   const [error, setError] = useState<string | null>(null);
 
   async function refreshBlocks() {
-    const response = await getCalendarWeek(accessToken);
-    setBlocks(response.blocks);
+    const [calendarResponse, goalResponse] = await Promise.all([getCalendarWeek(accessToken), listGoals(accessToken)]);
+    setBlocks(calendarResponse.blocks);
+    setGoals(goalResponse.goals.filter((goal) => !goal.is_complete));
   }
 
   useEffect(() => {
@@ -912,6 +971,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     setEditBlockId(null);
     setIsRecurring(false);
     setAlignmentStatus("unknown");
+    setSelectedGoalId("");
   }
 
   function loadBlockForEdit(block: CalendarBlock) {
@@ -922,6 +982,8 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     setEndHour(block.end_hour);
     setIsRecurring(block.is_recurring);
     setAlignmentStatus(block.alignment_status);
+    setSelectedGoalId(block.goal_id ?? "");
+    setSelectedBlock(block);
   }
 
   async function addBlock() {
@@ -939,7 +1001,8 @@ function CalendarView({ accessToken }: { accessToken: string }) {
         end_hour: Math.max(endHour, startHour + 1),
         is_recurring: isRecurring,
         recurrence_pattern: isRecurring ? "weekly" : null,
-        alignment_status: alignmentStatus
+        alignment_status: alignmentStatus,
+        goal_id: selectedGoalId || null
       };
       if (editBlockId) {
         await updateCalendarBlock(accessToken, editBlockId, payload);
@@ -998,6 +1061,74 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     return blocks.filter((block) => block.day_of_week === dayIndex && block.start_hour <= hour && block.end_hour > hour);
   }
 
+  const goalById = useMemo(() => new Map(goals.map((goal) => [goal.id, goal])), [goals]);
+  const daySummaries = useMemo(
+    () =>
+      weekDays.map((_, dayIndex) => {
+        const scheduled = blocks
+          .filter((block) => block.day_of_week === dayIndex)
+          .reduce((total, block) => total + Math.max(0, block.end_hour - block.start_hour), 0);
+        const bufferPercent = Math.max(0, Math.round(((15 - scheduled) / 15) * 100));
+        return { scheduled, bufferPercent, warning: bufferPercent < 20 };
+      }),
+    [blocks]
+  );
+  const alignedCount = blocks.filter((block) => block.alignment_status === "aligned").length;
+  const misalignedCount = blocks.filter((block) => block.alignment_status === "misaligned").length;
+  const isSunday = new Date().getDay() === 0;
+
+  async function placeDrag(dayIndex: number, hour: number) {
+    if (!dragPayload) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      if (dragPayload.startsWith("goal:")) {
+        const goalId = dragPayload.replace("goal:", "");
+        const goal = goalById.get(goalId);
+        if (goal) {
+          await createCalendarBlock(accessToken, {
+            title: goal.title,
+            day_of_week: dayIndex,
+            start_hour: hour,
+            end_hour: hour + 1,
+            goal_id: goal.id,
+            alignment_status: goal.priority > 0 ? "aligned" : "unknown"
+          });
+        }
+      } else if (dragPayload.startsWith("block:")) {
+        const blockId = dragPayload.replace("block:", "");
+        const block = blocks.find((item) => item.id === blockId);
+        if (block) {
+          const duration = Math.max(1, block.end_hour - block.start_hour);
+          await updateCalendarBlock(accessToken, block.id, {
+            day_of_week: dayIndex,
+            start_hour: hour,
+            end_hour: Math.min(22, hour + duration)
+          });
+        }
+      }
+      await refreshBlocks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Drag placement failed");
+    } finally {
+      setBusy(false);
+      setDragPayload(null);
+    }
+  }
+
+  function blockTone(block: CalendarBlock) {
+    const linkedGoal = block.goal_id ? goalById.get(block.goal_id) : null;
+    if (block.alignment_status === "misaligned") {
+      return "border-red-400/70 bg-red-950/30 text-red-200";
+    }
+    if (linkedGoal?.priority || block.alignment_status === "aligned" || block.source === "oracle_suggested") {
+      return "border-operator-cyan bg-operator-cyan/10 text-operator-cyan";
+    }
+    return "border-white/20 bg-white/5 text-white/60";
+  }
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -1016,15 +1147,75 @@ function CalendarView({ accessToken }: { accessToken: string }) {
       </div>
 
       {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
+      {isSunday && (
+        <p className="operator-cyan-panel p-3 text-sm text-operator-cyan">
+          Sunday planning mode is active. Load your weekly goals, place priority blocks, then lock the directive in Weekly Review.
+        </p>
+      )}
+
+      <section className="grid gap-3 md:grid-cols-7">
+        {weekDays.map((label, index) => (
+          <article className={`border p-3 text-center ${daySummaries[index].warning ? "border-red-400/70 bg-red-950/20" : "border-white/10 bg-black/25"}`} key={label}>
+            <p className="text-xs uppercase text-white/50">{label}</p>
+            <p className={daySummaries[index].warning ? "text-lg text-red-300" : "text-lg text-operator-cyan"}>
+              {daySummaries[index].bufferPercent}% buffer
+            </p>
+          </article>
+        ))}
+      </section>
+
+      <section className="operator-cyan-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Goal Alignment</h3>
+          <p className="text-xs uppercase text-white/45">
+            {alignedCount} aligned / {misalignedCount} misaligned
+          </p>
+        </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {goals.slice(0, 12).map((goal) => (
+            <button
+              className={`min-w-52 border px-3 py-2 text-left text-xs uppercase ${
+                goal.priority > 0 ? "border-operator-cyan bg-operator-cyan/10 text-operator-cyan" : "border-white/15 bg-black/30 text-white/55"
+              }`}
+              draggable
+              key={goal.id}
+              onDragStart={() => setDragPayload(`goal:${goal.id}`)}
+              onClick={() => {
+                setTitle(goal.title);
+                setSelectedGoalId(goal.id);
+                setAlignmentStatus(goal.priority > 0 ? "aligned" : "unknown");
+              }}
+            >
+              {goal.title}
+              <span className="mt-1 block text-[10px] text-white/40">{goal.horizon.replaceAll("_", " ")} / priority {goal.priority}</span>
+            </button>
+          ))}
+          {goals.length === 0 && <p className="text-sm text-white/45">No active goals available for scheduling.</p>}
+        </div>
+      </section>
 
       <section className="operator-panel p-4">
-        <div className="grid gap-2 md:grid-cols-[1fr_110px_100px_100px_120px_100px_44px]">
+        <div className="grid gap-2 md:grid-cols-[1fr_150px_110px_100px_100px_120px_100px_44px]">
           <input
             className="min-w-0 border border-operator-purple/50 bg-black/40 px-3 py-3 text-sm outline-none focus:border-operator-cyan"
             placeholder="Manual block title..."
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
+          <select
+            className="min-w-0 border border-operator-purple/50 bg-black/40 px-3 py-3 text-sm outline-none focus:border-operator-cyan"
+            value={selectedGoalId}
+            onChange={(event) => setSelectedGoalId(event.target.value)}
+          >
+            <option className="bg-black" value="">
+              No goal link
+            </option>
+            {goals.map((goal) => (
+              <option className="bg-black" key={goal.id} value={goal.id}>
+                {goal.title}
+              </option>
+            ))}
+          </select>
           <select
             className="border border-operator-purple/50 bg-black/40 px-3 py-3 text-sm outline-none focus:border-operator-cyan"
             value={day}
@@ -1118,14 +1309,19 @@ function CalendarView({ accessToken }: { accessToken: string }) {
                 const cellBlocks = blocksFor(dayIndex, hour);
                 return (
                   <div className="min-h-16 border-l border-white/10 p-1" key={`${label}-${hour}`}>
+                    <div
+                      className="mb-1 flex min-h-8 items-center justify-center border border-dashed border-white/10 text-[10px] uppercase text-white/25"
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => placeDrag(dayIndex, hour)}
+                    >
+                      Drop
+                    </div>
                     {cellBlocks.map((block) => (
                       <div
-                        className={`mb-1 border px-2 py-2 text-[11px] ${
-                          block.source === "oracle_suggested"
-                            ? "border-operator-cyan bg-operator-cyan/10 text-operator-cyan"
-                            : "border-operator-purple bg-operator-purple/10 text-white"
-                        }`}
+                        className={`mb-1 border px-2 py-2 text-[11px] ${blockTone(block)}`}
+                        draggable
                         key={block.id}
+                        onDragStart={() => setDragPayload(`block:${block.id}`)}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <button className="min-w-0 break-words text-left uppercase leading-4" onClick={() => loadBlockForEdit(block)}>
@@ -1146,6 +1342,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
                           {formatHour(block.start_hour)}-{formatHour(block.end_hour)}
                           {block.is_recurring && <span>/ HABIT</span>}
                           <span>/ {block.alignment_status}</span>
+                          {block.goal_id && <span>/ goal linked</span>}
                         </div>
                       </div>
                     ))}
@@ -1162,6 +1359,26 @@ function CalendarView({ accessToken }: { accessToken: string }) {
           )}
         </div>
       </section>
+
+      {selectedBlock && (
+        <section className="operator-cyan-panel p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Block Detail</h3>
+              <p className="mt-2 text-lg uppercase text-white">{selectedBlock.title}</p>
+              <p className="mt-1 text-sm text-white/50">
+                {weekDays[selectedBlock.day_of_week]} / {formatHour(selectedBlock.start_hour)}-{formatHour(selectedBlock.end_hour)}
+              </p>
+              <p className="mt-2 text-sm text-white/60">
+                Serves: {selectedBlock.goal_id ? goalById.get(selectedBlock.goal_id)?.title ?? "Archived goal source" : "No linked goal source"}
+              </p>
+            </div>
+            <button className="text-white/45" onClick={() => setSelectedBlock(null)} title="Close detail">
+              <X size={18} />
+            </button>
+          </div>
+        </section>
+      )}
     </section>
   );
 }

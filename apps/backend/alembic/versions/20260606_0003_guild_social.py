@@ -1,7 +1,7 @@
 """guild social
 
 Revision ID: 20260606_0003
-Revises: 20260522_0002
+Revises: 20260604_0003
 Create Date: 2026-06-06
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260606_0003"
-down_revision: str | None = "20260522_0002"
+down_revision: str | None = "20260604_0003"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

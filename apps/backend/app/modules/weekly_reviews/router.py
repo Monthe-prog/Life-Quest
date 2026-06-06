@@ -39,6 +39,7 @@ class WeeklyReviewResponse(BaseModel):
     streak: int
     locked: bool
     updated_at: str
+    summary: str
 
 
 class CompareResponse(BaseModel):
@@ -61,6 +62,16 @@ class ExportResponse(BaseModel):
     created_at: str
 
 
+def weekly_summary(review: WeeklyReview) -> str:
+    completion_label = "full clear" if review.completion_rate >= 90 else "partial progress" if review.completion_rate >= 50 else "reset window"
+    return (
+        f"{review.week_ending}: {completion_label}. "
+        f"Wins point to {review.wins[:120] or 'no captured wins yet'}. "
+        f"Friction to address: {review.friction[:120] or 'none recorded'}. "
+        f"Next directive: {review.directive[:160] or 'define one priority for the next week'}."
+    )
+
+
 def serialize(review: WeeklyReview) -> WeeklyReviewResponse:
     return WeeklyReviewResponse(
         id=review.id,
@@ -74,6 +85,7 @@ def serialize(review: WeeklyReview) -> WeeklyReviewResponse:
         streak=review.streak,
         locked=review.locked_at is not None,
         updated_at=review.updated_at.isoformat(),
+        summary=weekly_summary(review),
     )
 
 
@@ -160,12 +172,23 @@ async def create_export(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ExportResponse:
+    reviews = list(
+        await db.scalars(select(WeeklyReview).where(WeeklyReview.user_id == user.id, WeeklyReview.id.in_(payload.review_ids)))
+    )
+    if len(reviews) != len(set(payload.review_ids)):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more weekly reviews were not found")
+
     filename = f"operator-weekly-review-{now_utc().strftime('%Y%m%d-%H%M%S')}.pdf"
     export = WeeklyReviewExport(
         user_id=user.id,
         review_id=payload.review_ids[0] if len(payload.review_ids) == 1 else None,
         filename=filename,
-        settings={"review_ids": payload.review_ids, "sections": payload.sections},
+        settings={
+            "review_ids": payload.review_ids,
+            "sections": payload.sections,
+            "kind": "single" if len(payload.review_ids) == 1 else "multi",
+            "summaries": [weekly_summary(review) for review in reviews],
+        },
     )
     db.add(export)
     await db.commit()
