@@ -242,6 +242,15 @@ export type WeeklyReview = {
   streak: number;
   locked: boolean;
   updated_at: string;
+  summary: string;
+};
+
+export type WeeklyReviewCompare = {
+  left: WeeklyReview;
+  right: WeeklyReview;
+  completion_rate_delta: number;
+  xp_gained_delta: number;
+  streak_delta: number;
 };
 
 export type WeeklyReviewExport = {
@@ -740,6 +749,15 @@ export function saveWeeklyReview(
 export function deleteWeeklyReview(accessToken: string, reviewId: string) {
   return apiRequest<void>(`/api/weekly-reviews/${reviewId}`, {
     method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function compareWeeklyReviews(accessToken: string, leftId: string, rightId: string) {
+  const query = new URLSearchParams({ left_id: leftId, right_id: rightId });
+  return apiRequest<WeeklyReviewCompare>(`/api/weekly-reviews/compare?${query.toString()}`, {
     headers: {
       Authorization: `Bearer ${accessToken}`
     }
