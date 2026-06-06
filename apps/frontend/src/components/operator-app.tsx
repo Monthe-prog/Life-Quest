@@ -55,6 +55,7 @@ import {
   deleteWeeklyReview,
   createGoal,
   deleteCalendarBlock,
+  deleteGoal,
   discoverGuilds,
   exportWeeklyReviews,
   forgeGuild,
@@ -81,6 +82,7 @@ import {
   oracleBreakdown,
   hideGuildMessage,
   postGuildMessage,
+  quitGuild,
   register,
   removeGuildMember,
   saveOnboardingState,
@@ -132,6 +134,13 @@ const navItems: { label: View; icon: typeof Home }[] = [
   { label: "GUILD", icon: Shield },
   { label: "ABOUT", icon: Info }
 ];
+
+function visibleFetchError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message === "Failed to fetch") {
+    return null;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 const developers = [
   {
@@ -1444,7 +1453,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
   }
 
   useEffect(() => {
-    refreshBlocks().catch((err) => setError(err instanceof Error ? err.message : "Unable to load calendar"));
+    refreshBlocks().catch((err) => setError(visibleFetchError(err, "Unable to load calendar")));
   }, [accessToken]);
 
   function resetBlockForm() {
@@ -1507,7 +1516,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
       setScheduleWarnings(response.warnings ?? []);
       await refreshBlocks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Schedule suggestion failed");
+      setError(visibleFetchError(err, "Schedule suggestion failed"));
     } finally {
       setBusy(false);
     }
@@ -1961,7 +1970,7 @@ function GoalsMatrix({
   }
 
   useEffect(() => {
-    refreshGoals().catch((err) => setError(err instanceof Error ? err.message : "Unable to load goals"));
+    refreshGoals().catch((err) => setError(visibleFetchError(err, "Unable to load goals")));
   }, [accessToken]);
 
   const dailyDone = useMemo(() => {
@@ -2025,6 +2034,26 @@ function GoalsMatrix({
     } catch (err) {
       playSound("error");
       setError(err instanceof Error ? err.message : "Progress update failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeGoal(goal: Goal) {
+    const confirmed = window.confirm(`Delete "${goal.title}"? Child goals will be removed too.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(goal.id);
+    setError(null);
+    try {
+      await deleteGoal(accessToken, goal.id);
+      playSound("confirm");
+      await refreshGoals();
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Goal deletion failed");
     } finally {
       setBusy(null);
     }
@@ -2182,6 +2211,7 @@ function GoalsMatrix({
                       onBreakdown={breakDown}
                       onChildDraft={(value) => setDrafts((current) => ({ ...current, [goal.id]: value }))}
                       onChildTarget={(value) => setTargets((current) => ({ ...current, [goal.id]: value }))}
+                      onDelete={removeGoal}
                       onSpawnChild={() => section.child && addGoal(section.child, goal.id)}
                       target={targets[goal.id] ?? 1}
                     />
@@ -2261,6 +2291,7 @@ function GoalRow({
   onBreakdown,
   onChildDraft,
   onChildTarget,
+  onDelete,
   onSpawnChild,
   target
 }: {
@@ -2272,6 +2303,7 @@ function GoalRow({
   onBreakdown: (goal: Goal) => void;
   onChildDraft: (value: string) => void;
   onChildTarget: (value: number) => void;
+  onDelete: (goal: Goal) => void;
   onSpawnChild: () => void;
   target: number;
 }) {
@@ -2300,6 +2332,14 @@ function GoalRow({
           </span>
           <button className="border border-operator-cyan p-2 text-operator-cyan" disabled={busy} onClick={() => onAdjust(goal, 1)}>
             <Plus size={14} />
+          </button>
+          <button
+            className="border border-red-400/70 p-2 text-red-300 disabled:opacity-40"
+            disabled={busy}
+            onClick={() => onDelete(goal)}
+            title="Delete goal"
+          >
+            <Trash2 size={14} />
           </button>
         </div>
       </div>
@@ -3154,7 +3194,7 @@ function GuildView({
   }
 
   useEffect(() => {
-    refreshGuild().catch((err) => setError(err instanceof Error ? err.message : "Unable to load guild data"));
+    refreshGuild().catch((err) => setError(visibleFetchError(err, "Unable to load guild data")));
   }, [accessToken, globalMetric, memberFilter, messageSearch, reactionFilter]);
 
   useEffect(() => {
@@ -3308,6 +3348,30 @@ function GuildView({
     }
   }
 
+  async function leaveGuild() {
+    const isOwner = myRole === "owner";
+    const confirmed = window.confirm(isOwner ? "Disband this guild and remove all members?" : "Quit this guild?");
+    if (!confirmed) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      playSound("confirm");
+      await quitGuild(accessToken);
+      setStatus({ aligned: false, guild: null });
+      setOverview(null);
+      setMessages([]);
+      await refreshGuild();
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Guild quit failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function togglePrivacy(enabled: boolean) {
     await updateLeaderboardPrivacy(accessToken, enabled).catch((err) => setError(err instanceof Error ? err.message : "Privacy update failed"));
     await refreshGuild().catch(() => undefined);
@@ -3355,6 +3419,7 @@ function GuildView({
               busy={busy}
               onKick={kickMember}
               onPrivacyToggle={togglePrivacy}
+              onQuit={leaveGuild}
               onRoleChange={changeRole}
             />
           ) : (
@@ -3475,6 +3540,7 @@ function GuildDashboard({
   moderationFeed,
   onKick,
   onPrivacyToggle,
+  onQuit,
   onRoleChange
 }: {
   busy: boolean;
@@ -3486,6 +3552,7 @@ function GuildDashboard({
   moderationFeed: ModerationEvent[];
   onKick: (member: GuildMember) => void;
   onPrivacyToggle: (enabled: boolean) => void;
+  onQuit: () => void;
   onRoleChange: (member: GuildMember, role: "moderator" | "member") => void;
 }) {
   const self = members.find((member) => member.is_current_user);
@@ -3496,7 +3563,16 @@ function GuildDashboard({
           <h3 className="operator-glow text-2xl uppercase">{guild.name}</h3>
           <p className="mt-2 text-sm text-white/55">{guild.motto || "No motto encoded."}</p>
         </div>
-        <span className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan">{guild.role}</span>
+        <div className="flex items-center gap-2">
+          <span className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan">{guild.role}</span>
+          <button
+            className="border border-red-400/70 px-3 py-2 text-xs uppercase text-red-300 disabled:opacity-40"
+            disabled={busy}
+            onClick={onQuit}
+          >
+            {guild.role === "owner" ? "Disband" : "Quit"}
+          </button>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">

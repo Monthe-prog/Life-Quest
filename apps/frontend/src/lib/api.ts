@@ -398,6 +398,15 @@ export function changeGoalProgress(accessToken: string, goalId: string, delta: n
   });
 }
 
+export function deleteGoal(accessToken: string, goalId: string) {
+  return apiRequest<void>(`/api/goals/${goalId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
 export function spawnChildGoal(
   accessToken: string,
   goalId: string,
@@ -648,6 +657,15 @@ export function updateGuildMemberRole(accessToken: string, memberId: string, rol
 
 export function removeGuildMember(accessToken: string, memberId: string) {
   return apiRequest<GuildOverview>(`/api/guilds/members/${memberId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function quitGuild(accessToken: string) {
+  return apiRequest<void>("/api/guilds/membership", {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${accessToken}`
