@@ -1,0 +1,108 @@
+---
+- name: Deploy OPERATOR application stack
+  hosts: lifequest
+  become: true
+  vars:
+    app_env:
+      COMPOSE_PROJECT_NAME: operator
+      POSTGRES_USER: operator
+      POSTGRES_PASSWORD: operator_dev_password
+      POSTGRES_DB: operator
+      POSTGRES_PORT: "5432"
+      REDIS_PORT: "6379"
+      BACKEND_PORT: "8000"
+      BACKEND_CORS_ORIGINS: "http://{{ app_domain }}"
+      DATABASE_URL: "postgresql+asyncpg://operator:operator_dev_password@postgres:5432/operator"
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: replace-with-a-long-random-secret
+      JWT_ACCESS_TOKEN_MINUTES: "15"
+      JWT_REFRESH_TOKEN_DAYS: "30"
+      OLLAMA_BASE_URL: http://ollama-service:11434
+      OLLAMA_MODEL: llama3
+      OPENAI_API_KEY: ""
+      OPENAI_MODEL: gpt-5.5
+      FRONTEND_PORT: "3000"
+      NEXT_PUBLIC_API_BASE_URL: "http://{{ app_domain }}"
+      NEXT_PUBLIC_WS_BASE_URL: "ws://{{ app_domain }}"
+      PROMETHEUS_PORT: "9090"
+      GRAFANA_PORT: "3001"
+      GRAFANA_ADMIN_USER: admin
+      GRAFANA_ADMIN_PASSWORD: operator_grafana_password
+
+  tasks:
+    - name: Ensure app directory exists
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: deploy
+        group: deploy
+        mode: "0755"
+
+    - name: Clone or update application repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: main
+        force: true
+      become_user: deploy
+
+    - name: Write application environment file
+      ansible.builtin.copy:
+        dest: "{{ app_dir }}/.env"
+        owner: deploy
+        group: deploy
+        mode: "0600"
+        content: |
+          {% for key, value in app_env.items() %}
+          {{ key }}={{ value }}
+          {% endfor %}
+
+    - name: Build and start application plus monitoring containers
+      ansible.builtin.command:
+        cmd: docker compose up -d --build
+        chdir: "{{ app_dir }}"
+      register: compose_up
+      changed_when: "'Started' in compose_up.stdout or 'Recreated' in compose_up.stdout or 'Built' in compose_up.stdout or 'Created' in compose_up.stdout"
+
+    - name: Run database migrations
+      ansible.builtin.command:
+        cmd: docker compose exec -T backend alembic upgrade head
+        chdir: "{{ app_dir }}"
+      changed_when: false
+
+    - name: Install Nginx reverse proxy config
+      ansible.builtin.template:
+        src: ../templates/life-quest.nginx.conf.j2
+        dest: /etc/nginx/sites-available/life-quest
+        mode: "0644"
+      notify: Reload nginx
+
+    - name: Enable Nginx site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/life-quest
+        dest: /etc/nginx/sites-enabled/life-quest
+        state: link
+      notify: Reload nginx
+
+    - name: Disable default Nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: Show running containers
+      ansible.builtin.command:
+        cmd: docker compose ps
+        chdir: "{{ app_dir }}"
+      register: compose_ps
+      changed_when: false
+
+    - name: Print container status
+      ansible.builtin.debug:
+        var: compose_ps.stdout_lines
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

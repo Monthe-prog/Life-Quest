@@ -2,6 +2,14 @@
 
 Phase 1 exposes foundational service boundaries. Feature-complete payloads will be expanded during later implementation phases.
 
+## Hosted API Documentation
+
+Swagger UI is the project API documentation source because the FastAPI backend generates it from the live route definitions.
+
+- Local Swagger UI: `http://localhost:8000/api/docs`
+- Hosted Swagger UI: `http://158.220.90.106/api/docs`
+- OpenAPI schema: `http://158.220.90.106/api/openapi.json`
+
 ## System
 
 `GET /health`

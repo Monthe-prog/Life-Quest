@@ -16,6 +16,7 @@ import {
   Globe2,
   Heart,
   Home,
+  Info,
   Lock,
   LogOut,
   MessageSquare,
@@ -39,10 +40,13 @@ import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } fro
 import {
   changeGoalProgress,
   acceptOracleBreakdown,
+  completeCalendarBlock,
   createCalendarBlock,
+  deleteWeeklyReview,
   createGoal,
   deleteCalendarBlock,
   discoverGuilds,
+  exportWeeklyReviews,
   forgeGuild,
   getCharacterProfile,
   getCalendarWeek,
@@ -51,10 +55,13 @@ import {
   getGuildMessages,
   getGuildOverview,
   getGuildStatus,
+  getLatestWeeklyReview,
   getMe,
   getOracleStatus,
   joinGuild,
   interrogateOracle,
+  listWeeklyReviewExports,
+  listWeeklyReviews,
   listGoals,
   login,
   logout,
@@ -91,14 +98,31 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 
-type View = "HOME" | "GOALS" | "CALENDAR" | "CHARACTER" | "GUILD";
+type View = "HOME" | "GOALS" | "CALENDAR" | "REVIEW" | "CHARACTER" | "GUILD" | "ABOUT";
 
 const navItems: { label: View; icon: typeof Home }[] = [
   { label: "HOME", icon: Home },
   { label: "GOALS", icon: Target },
   { label: "CALENDAR", icon: CalendarDays },
+  { label: "REVIEW", icon: BookOpen },
   { label: "CHARACTER", icon: UserRound },
-  { label: "GUILD", icon: Shield }
+  { label: "GUILD", icon: Shield },
+  { label: "ABOUT", icon: Info }
+];
+
+const developers = [
+  {
+    name: "Yann Aymerick Atsa Atsa",
+    role: "Scrum Master + Frontend Lead",
+    image:
+      "https://scontent-los4-1.xx.fbcdn.net/v/t39.30808-1/396287513_312706138148572_7324980911721982528_n.jpg?stp=dst-jpg_s200x200_tt6&_nc_cat=102&ccb=1-7&_nc_sid=e99d92&_nc_eui2=AeFAfrVmq1j4R/dQm_skI1AzcdNuxzUNrDJ1027HNQ2sMnUFLW2-niWjGxxDeNrLYP9aBFnoGFiXgUmsvVYiV1jg2&_nc_ohc=IKH2NfQUMn8Q7kNvwHEp8qG&_nc_oc=AdojM2_nTDgCT2usmlT8tdDEtqw-fOGCJeJmYcSohttVJRJsYw65CxWqh4oaAjJcpJc&_nc_zt=24&_nc_ht=scontent-los4-1.xx&_nc_gid=Rsd7vwUpJVheF6ThRg6njw&_nc_ss=7b2a8&oh=00_Af_oIRnfEIETB-u-jnHwoO2qD4YRJe-8CLH2f_dH2j9LoQ&oe=6A28E533"
+  },
+  {
+    name: "Monthe Joseph Christian",
+    role: "Product Owner + Backend Lead",
+    image:
+      "https://scontent-los4-1.xx.fbcdn.net/v/t39.30808-6/643864765_122277132314033125_3220683603402811466_n.jpg?_nc_cat=109&ccb=1-7&_nc_sid=6ee11a&_nc_eui2=AeECwSHSsJXianuMvYeWNsedNt1O0Qz92GY23U7RDP3YZnGoTKx3ga1FGTMPhaqWvhSfuF0quVd-FEYGGsWW8q10&_nc_ohc=rzgJF8Jc658Q7kNvwHAeWqi&_nc_oc=Adp08Bx4Yhr4rM6siUFlq1kJL8jOzp7xrd2BfnYuDabZ-J5SrUCDc7qd4t4fitrvNmE&_nc_zt=23&_nc_ht=scontent-los4-1.xx&_nc_gid=OZdn7qevPrs8aLSSE12GQQ&_nc_ss=7b2a8&oh=00_Af9EXAwAL1kJ0zRrSllyewmSjrkeHI3hhvGIsVjhUza90Q&oe=6A28E2D5"
+  }
 ];
 
 const goalSections: { horizon: GoalHorizon; title: string; prompt: string; child?: GoalHorizon }[] = [
@@ -416,12 +440,14 @@ function Shell({
         {activeView === "HOME" && <HomeView accessToken={accessToken} battleEvent={battleEvent} callsign={callsign} playSound={playSound} />}
         {activeView === "GOALS" && <GoalsMatrix accessToken={accessToken} onBattleEvent={setBattleEvent} playSound={playSound} />}
         {activeView === "CALENDAR" && <CalendarView accessToken={accessToken} />}
+        {activeView === "REVIEW" && <WeeklyReviewView accessToken={accessToken} playSound={playSound} />}
         {activeView === "CHARACTER" && <CharacterView accessToken={accessToken} battleEvent={battleEvent} playSound={playSound} />}
         {activeView === "GUILD" && <GuildView accessToken={accessToken} playSound={playSound} />}
+        {activeView === "ABOUT" && <AboutView />}
       </section>
 
       <nav className="fixed inset-x-0 bottom-0 border-t border-operator-purple/65 bg-[#08080b]/95">
-        <div className="mx-auto grid max-w-3xl grid-cols-5">
+        <div className="mx-auto grid max-w-3xl grid-cols-7">
           {navItems.map(({ label, icon: Icon }) => (
             <button
               className={`flex flex-col items-center gap-1 px-2 py-3 text-[11px] uppercase ${
@@ -567,12 +593,308 @@ function HomeView({
   );
 }
 
+function AboutView() {
+  return (
+    <section className="space-y-5">
+      <div className="operator-panel p-5">
+        <p className="text-xs uppercase tracking-[0.28em] text-operator-cyan">Project Team</p>
+        <h2 className="operator-glow mt-2 text-3xl uppercase">About OPERATOR</h2>
+        <p className="mt-3 text-sm leading-6 text-white/65">
+          OPERATOR / Life Quest was designed as an AI-assisted gamified life-management platform for the Software Architecture project.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {developers.map((developer) => (
+          <article className="border border-operator-purple/70 bg-operator-surface p-5" key={developer.name}>
+            <div className="flex items-center gap-4">
+              <div className="relative h-24 w-24 shrink-0 overflow-hidden border border-operator-cyan bg-black">
+                <img
+                  alt={developer.name}
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  src={developer.image}
+                />
+              </div>
+              <div className="min-w-0">
+                <h3 className="operator-glow break-words text-xl uppercase leading-tight">{developer.name}</h3>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-operator-cyan">{developer.role}</p>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function currentSunday() {
+  const today = new Date();
+  const day = today.getDay();
+  const delta = day === 0 ? 0 : 7 - day;
+  const sunday = new Date(today);
+  sunday.setDate(today.getDate() + delta);
+  return sunday.toISOString().slice(0, 10);
+}
+
+function emptyReview(): Omit<WeeklyReview, "id" | "locked" | "updated_at"> {
+  return {
+    week_ending: currentSunday(),
+    wins: "",
+    friction: "",
+    alignment: "",
+    directive: "",
+    completion_rate: 0,
+    xp_gained: 0,
+    streak: 0
+  };
+}
+
+function WeeklyReviewView({
+  accessToken,
+  playSound
+}: {
+  accessToken: string;
+  playSound: (kind?: "select" | "confirm" | "error") => void;
+}) {
+  const [draft, setDraft] = useState(emptyReview);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [editMode, setEditMode] = useState(true);
+  const [dirty, setDirty] = useState(false);
+  const [archive, setArchive] = useState<WeeklyReview[]>([]);
+  const [exports, setExports] = useState<WeeklyReviewExport[]>([]);
+  const [sections, setSections] = useState(["wins", "friction", "alignment", "directive", "metrics"]);
+  const [statusText, setStatusText] = useState("Loading review channel...");
+
+  async function refreshReviews() {
+    const [latest, reviews, exportRows] = await Promise.all([
+      getLatestWeeklyReview(accessToken),
+      listWeeklyReviews(accessToken),
+      listWeeklyReviewExports(accessToken)
+    ]);
+    setArchive(reviews);
+    setExports(exportRows);
+    if (latest) {
+      setActiveId(latest.id);
+      setDraft({
+        week_ending: latest.week_ending,
+        wins: latest.wins,
+        friction: latest.friction,
+        alignment: latest.alignment,
+        directive: latest.directive,
+        completion_rate: latest.completion_rate,
+        xp_gained: latest.xp_gained,
+        streak: latest.streak
+      });
+      setLocked(latest.locked);
+      setEditMode(!latest.locked);
+    }
+    setDirty(false);
+    setStatusText(latest ? "Saved" : "No saved ceremony yet");
+  }
+
+  useEffect(() => {
+    refreshReviews().catch(() => setStatusText("Review archive unavailable"));
+  }, [accessToken]);
+
+  function updateDraft(field: keyof typeof draft, value: string | number) {
+    setDraft((current) => ({ ...current, [field]: value }));
+    setDirty(true);
+    setStatusText("Unsaved changes");
+  }
+
+  async function save(lock: boolean) {
+    try {
+      playSound("confirm");
+      const saved = await saveWeeklyReview(accessToken, { ...draft, lock });
+      setActiveId(saved.id);
+      setLocked(saved.locked);
+      setDirty(false);
+      setEditMode(!saved.locked);
+      setStatusText(lock ? "Locked and saved" : "Saved");
+      await refreshReviews();
+    } catch (err) {
+      playSound("error");
+      setStatusText(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  async function removeReview(reviewId: string) {
+    try {
+      await deleteWeeklyReview(accessToken, reviewId);
+      setActiveId(null);
+      setDraft(emptyReview());
+      setLocked(false);
+      setEditMode(true);
+      setDirty(false);
+      await refreshReviews();
+      setStatusText("Ceremony deleted");
+    } catch (err) {
+      setStatusText(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  async function exportCurrent() {
+    if (!activeId) {
+      setStatusText("Save the ceremony before exporting");
+      return;
+    }
+    try {
+      const result = await exportWeeklyReviews(accessToken, [activeId], sections);
+      setExports((current) => [result, ...current]);
+      setStatusText(`Export registered: ${result.filename}`);
+    } catch (err) {
+      setStatusText(err instanceof Error ? err.message : "Export failed");
+    }
+  }
+
+  function loadReview(review: WeeklyReview) {
+    setActiveId(review.id);
+    setDraft({
+      week_ending: review.week_ending,
+      wins: review.wins,
+      friction: review.friction,
+      alignment: review.alignment,
+      directive: review.directive,
+      completion_rate: review.completion_rate,
+      xp_gained: review.xp_gained,
+      streak: review.streak
+    });
+    setLocked(review.locked);
+    setEditMode(!review.locked);
+    setDirty(false);
+    setStatusText("Saved");
+  }
+
+  const fields: Array<[keyof typeof draft, string, "textarea" | "number" | "date"]> = [
+    ["week_ending", "Week ending Sunday", "date"],
+    ["wins", "Wins", "textarea"],
+    ["friction", "Friction", "textarea"],
+    ["alignment", "Alignment check", "textarea"],
+    ["directive", "Oracle directive", "textarea"],
+    ["completion_rate", "Completion rate", "number"],
+    ["xp_gained", "XP gained", "number"],
+    ["streak", "Streak", "number"]
+  ];
+
+  return (
+    <section className="flex flex-col gap-5">
+      <div className="border border-operator-purple/70 bg-operator-surface p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="operator-glow text-3xl uppercase">Weekly Review</h2>
+            <p className="mt-1 text-xs uppercase tracking-[0.2em] text-white/50">{statusText}</p>
+          </div>
+          <div className="flex gap-2">
+            <button className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan" onClick={() => setEditMode((value) => !value)}>
+              {editMode ? "View mode" : "Edit mode"}
+            </button>
+            <button className="border border-operator-purple px-3 py-2 text-xs uppercase text-operator-purple" onClick={() => save(false)}>
+              Save
+            </button>
+            <button className="border border-operator-cyan bg-operator-cyan/10 px-3 py-2 text-xs uppercase text-operator-cyan" onClick={() => save(true)}>
+              Lock
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3 text-xs uppercase">
+          <span className={dirty ? "text-yellow-300" : "text-operator-cyan"}>{dirty ? "Unsaved changes" : "Saved"}</span>
+          <span className={locked ? "text-operator-purple" : "text-white/45"}>{locked ? "Directive locked" : "Unlocked"}</span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {fields.map(([field, label, kind]) => (
+          <label className="flex flex-col gap-2 border border-operator-purple/45 bg-operator-surface p-4" key={field}>
+            <span className="text-xs uppercase tracking-[0.2em] text-operator-purple">{label}</span>
+            {kind === "textarea" ? (
+              <textarea
+                className="min-h-28 resize-y border border-white/10 bg-black/40 p-3 text-sm outline-none focus:border-operator-cyan disabled:text-white/45"
+                disabled={!editMode}
+                value={String(draft[field])}
+                onChange={(event) => updateDraft(field, event.target.value)}
+              />
+            ) : (
+              <input
+                className="border border-white/10 bg-black/40 p-3 text-sm outline-none focus:border-operator-cyan disabled:text-white/45"
+                disabled={!editMode}
+                type={kind}
+                value={draft[field]}
+                onChange={(event) => updateDraft(field, kind === "number" ? Number(event.target.value) : event.target.value)}
+              />
+            )}
+          </label>
+        ))}
+      </div>
+
+      <div className="border border-operator-cyan/60 bg-operator-surface p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="operator-glow text-xl uppercase">Export Settings</h3>
+          <button className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan" onClick={exportCurrent}>
+            Export PDF
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {["wins", "friction", "alignment", "directive", "metrics"].map((section) => (
+            <button
+              className={`border px-3 py-2 text-xs uppercase ${
+                sections.includes(section) ? "border-operator-cyan text-operator-cyan" : "border-white/15 text-white/45"
+              }`}
+              key={section}
+              onClick={() =>
+                setSections((current) => (current.includes(section) ? current.filter((item) => item !== section) : [...current, section]))
+              }
+            >
+              {section}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="border border-operator-purple/60 bg-operator-surface p-4">
+          <h3 className="operator-glow text-xl uppercase">Review Archive</h3>
+          <div className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
+            {archive.map((review) => (
+              <div className="flex items-center justify-between border border-white/10 p-3" key={review.id}>
+                <button className="text-left text-sm uppercase text-white" onClick={() => loadReview(review)}>
+                  {review.week_ending} / {review.completion_rate}%
+                </button>
+                <button className="text-red-300" onClick={() => removeReview(review.id)} title="Delete review">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+            {archive.length === 0 && <p className="text-sm text-white/45">No saved ceremonies yet.</p>}
+          </div>
+        </div>
+        <div className="border border-operator-cyan/60 bg-operator-surface p-4">
+          <h3 className="operator-glow text-xl uppercase">Export History</h3>
+          <div className="mt-3 flex max-h-72 flex-col gap-2 overflow-y-auto">
+            {exports.map((row) => (
+              <div className="border border-white/10 p-3 text-sm" key={row.id}>
+                <p className="text-operator-cyan">{row.filename}</p>
+                <p className="text-xs text-white/45">{new Date(row.created_at).toLocaleString()}</p>
+              </div>
+            ))}
+            {exports.length === 0 && <p className="text-sm text-white/45">No PDF exports registered.</p>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function CalendarView({ accessToken }: { accessToken: string }) {
   const [blocks, setBlocks] = useState<CalendarBlock[]>([]);
   const [title, setTitle] = useState("");
   const [day, setDay] = useState(0);
   const [startHour, setStartHour] = useState(7);
   const [endHour, setEndHour] = useState(8);
+  const [editBlockId, setEditBlockId] = useState<string | null>(null);
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [alignmentStatus, setAlignmentStatus] = useState("unknown");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -585,6 +907,23 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     refreshBlocks().catch((err) => setError(err instanceof Error ? err.message : "Unable to load calendar"));
   }, [accessToken]);
 
+  function resetBlockForm() {
+    setTitle("");
+    setEditBlockId(null);
+    setIsRecurring(false);
+    setAlignmentStatus("unknown");
+  }
+
+  function loadBlockForEdit(block: CalendarBlock) {
+    setEditBlockId(block.id);
+    setTitle(block.title);
+    setDay(block.day_of_week);
+    setStartHour(block.start_hour);
+    setEndHour(block.end_hour);
+    setIsRecurring(block.is_recurring);
+    setAlignmentStatus(block.alignment_status);
+  }
+
   async function addBlock() {
     if (!title.trim()) {
       return;
@@ -593,16 +932,24 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     setBusy(true);
     setError(null);
     try {
-      await createCalendarBlock(accessToken, {
+      const payload = {
         title: title.trim(),
         day_of_week: day,
         start_hour: startHour,
-        end_hour: Math.max(endHour, startHour + 1)
-      });
-      setTitle("");
+        end_hour: Math.max(endHour, startHour + 1),
+        is_recurring: isRecurring,
+        recurrence_pattern: isRecurring ? "weekly" : null,
+        alignment_status: alignmentStatus
+      };
+      if (editBlockId) {
+        await updateCalendarBlock(accessToken, editBlockId, payload);
+      } else {
+        await createCalendarBlock(accessToken, payload);
+      }
+      resetBlockForm();
       await refreshBlocks();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Block creation failed");
+      setError(err instanceof Error ? err.message : "Block save failed");
     } finally {
       setBusy(false);
     }
@@ -634,6 +981,19 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     }
   }
 
+  async function toggleComplete(block: CalendarBlock) {
+    setBusy(true);
+    setError(null);
+    try {
+      await completeCalendarBlock(accessToken, block.id);
+      await refreshBlocks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Block completion failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function blocksFor(dayIndex: number, hour: number) {
     return blocks.filter((block) => block.day_of_week === dayIndex && block.start_hour <= hour && block.end_hour > hour);
   }
@@ -658,7 +1018,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
       {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       <section className="operator-panel p-4">
-        <div className="grid gap-2 md:grid-cols-[1fr_110px_100px_100px_44px]">
+        <div className="grid gap-2 md:grid-cols-[1fr_110px_100px_100px_120px_100px_44px]">
           <input
             className="min-w-0 border border-operator-purple/50 bg-black/40 px-3 py-3 text-sm outline-none focus:border-operator-cyan"
             placeholder="Manual block title..."
@@ -706,15 +1066,38 @@ function CalendarView({ accessToken }: { accessToken: string }) {
                 </option>
               ))}
           </select>
+          <select
+            className="border border-operator-purple/50 bg-black/40 px-3 py-3 text-sm outline-none focus:border-operator-cyan"
+            value={alignmentStatus}
+            onChange={(event) => setAlignmentStatus(event.target.value)}
+          >
+            {["unknown", "aligned", "misaligned"].map((value) => (
+              <option className="bg-black" key={value} value={value}>
+                {value.toUpperCase()}
+              </option>
+            ))}
+          </select>
+          <button
+            className={`border px-3 py-3 text-xs uppercase ${isRecurring ? "border-operator-cyan text-operator-cyan" : "border-white/15 text-white/45"}`}
+            onClick={() => setIsRecurring((value) => !value)}
+            type="button"
+          >
+            Habit
+          </button>
           <button
             className="flex items-center justify-center border border-operator-purple text-operator-purple disabled:opacity-40"
             disabled={busy}
             onClick={addBlock}
-            title="Add manual block"
+            title={editBlockId ? "Save block" : "Add manual block"}
           >
-            <Plus size={18} />
+            {editBlockId ? <Zap size={18} /> : <Plus size={18} />}
           </button>
         </div>
+        {editBlockId && (
+          <button className="mt-3 text-xs uppercase text-white/45" onClick={resetBlockForm}>
+            Cancel edit
+          </button>
+        )}
       </section>
 
       <section className="overflow-x-auto border border-operator-purple/60 bg-black/30">
@@ -745,14 +1128,24 @@ function CalendarView({ accessToken }: { accessToken: string }) {
                         key={block.id}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="min-w-0 break-words uppercase leading-4">{block.title}</span>
-                          <button className="shrink-0 text-white/45" disabled={busy} onClick={() => removeBlock(block)} title="Delete block">
-                            <Trash2 size={12} />
+                          <button className="min-w-0 break-words text-left uppercase leading-4" onClick={() => loadBlockForEdit(block)}>
+                            {block.completed ? "[DONE] " : ""}
+                            {block.title}
                           </button>
+                          <div className="flex shrink-0 gap-1">
+                            <button className="text-operator-cyan" disabled={busy} onClick={() => toggleComplete(block)} title="Toggle complete">
+                              <Award size={12} />
+                            </button>
+                            <button className="text-white/45" disabled={busy} onClick={() => removeBlock(block)} title="Delete block">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
                         <div className="mt-1 flex items-center gap-1 text-[10px] text-white/45">
                           <Clock size={10} />
                           {formatHour(block.start_hour)}-{formatHour(block.end_hour)}
+                          {block.is_recurring && <span>/ HABIT</span>}
+                          <span>/ {block.alignment_status}</span>
                         </div>
                       </div>
                     ))}
@@ -1596,7 +1989,11 @@ function GuildView({
   }, [accessToken, globalMetric, memberFilter, messageSearch, reactionFilter]);
 
   useEffect(() => {
-    const wsBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
+    const wsBase =
+      process.env.NEXT_PUBLIC_WS_BASE_URL ||
+      (typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000`
+        : "ws://localhost:8000");
     const socket = new WebSocket(`${wsBase}/ws/guild-feed?token=${encodeURIComponent(accessToken)}`);
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data);
@@ -2307,34 +2704,7 @@ function AuthFrame(props: AuthFrameProps) {
 
         <div className="space-y-4">
           <CyberInput label="Email" value={props.email} onChange={props.setEmail} />
-          <CyberInput
-            action={
-              <button
-                className="flex h-full w-12 items-center justify-center border-l border-operator-purple/40 text-operator-purple"
-                onClick={() => setShowPassword((current) => !current)}
-                title={showPassword ? "Hide password" : "Show password"}
-                type="button"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            }
-            label="Password"
-            type={showPassword ? "text" : "password"}
-            value={props.password}
-            onChange={props.setPassword}
-          />
-          {props.mode === "register" && (
-            <>
-              <CyberInput
-                label="Confirm Password"
-                type={showPassword ? "text" : "password"}
-                value={props.confirmPassword}
-                onChange={props.setConfirmPassword}
-              />
-              <PasswordStrengthMeter score={strength.score} label={strength.label} />
-              {!passwordsMatch && <p className="text-sm text-red-300">Passwords do not match.</p>}
-            </>
-          )}
+          <CyberInput label="Password" minLength={8} type="password" value={props.password} onChange={props.setPassword} />
           {props.error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{props.error}</p>}
           <button
             className="w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(208,0,255,0.45)] disabled:opacity-50"
@@ -2402,12 +2772,14 @@ function CallsignGate(props: CallsignGateProps) {
 function CyberInput({
   action,
   label,
+  minLength,
   onChange,
   type = "text",
   value
 }: {
   action?: ReactNode;
   label: string;
+  minLength?: number;
   onChange: (value: string) => void;
   type?: string;
   value: string;
@@ -2415,15 +2787,13 @@ function CyberInput({
   return (
     <label className="block">
       <span className="mb-2 block text-sm uppercase tracking-[0.22em] text-operator-purple">{label}</span>
-      <span className="flex border border-operator-purple/70 bg-operator-surface focus-within:border-operator-cyan">
-        <input
-          className="min-w-0 flex-1 bg-transparent px-4 py-4 text-sm outline-none"
-          type={type}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        {action}
-      </span>
+      <input
+        className="w-full border border-operator-purple/70 bg-operator-surface px-4 py-4 text-sm outline-none focus:border-operator-cyan"
+        minLength={minLength}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </label>
   );
 }
