@@ -11,6 +11,8 @@ import {
   ChevronUp,
   Clock,
   Dumbbell,
+  Eye,
+  EyeOff,
   Globe2,
   Heart,
   Home,
@@ -135,6 +137,107 @@ const statIcons: Record<string, typeof Dumbbell> = {
   charisma: Users
 };
 
+const OPERATOR_LOGO_SRC = "/operator-logo.png";
+
+type AmbienceMode = "auth" | "app";
+
+function useBackgroundAmbience(mode: AmbienceMode) {
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const AudioCtor =
+      window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtor) {
+      return;
+    }
+
+    let context: AudioContext | null = null;
+    let gain: GainNode | null = null;
+    let oscillators: OscillatorNode[] = [];
+    let timer: number | null = null;
+    let stopped = false;
+
+    const stop = () => {
+      stopped = true;
+      if (timer) {
+        window.clearInterval(timer);
+      }
+      oscillators.forEach((oscillator) => oscillator.stop());
+      oscillators = [];
+      if (gain && context) {
+        gain.gain.cancelScheduledValues(context.currentTime);
+        gain.gain.linearRampToValueAtTime(0.0001, context.currentTime + 0.25);
+      }
+      context?.close().catch(() => undefined);
+    };
+
+    const start = async () => {
+      if (context || stopped) {
+        return;
+      }
+
+      context = new AudioCtor();
+      await context.resume().catch(() => undefined);
+      if (context.state !== "running") {
+        return;
+      }
+
+      gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.linearRampToValueAtTime(mode === "auth" ? 0.022 : 0.017, context.currentTime + 0.8);
+      gain.connect(context.destination);
+
+      const notes = mode === "auth" ? [98, 147, 196] : [130.81, 196, 261.63];
+      oscillators = notes.map((frequency, index) => {
+        const oscillator = context!.createOscillator();
+        const filter = context!.createBiquadFilter();
+        oscillator.type = index === 0 ? "sine" : "triangle";
+        oscillator.frequency.value = frequency;
+        filter.type = "lowpass";
+        filter.frequency.value = mode === "auth" ? 420 : 560;
+        oscillator.connect(filter);
+        filter.connect(gain!);
+        oscillator.start();
+        return oscillator;
+      });
+
+      timer = window.setInterval(() => {
+        if (!context || !gain) {
+          return;
+        }
+        const now = context.currentTime;
+        const accent = context.createOscillator();
+        const accentGain = context.createGain();
+        accent.type = "sine";
+        accent.frequency.value = mode === "auth" ? 294 : 392;
+        accentGain.gain.setValueAtTime(0.0001, now);
+        accentGain.gain.linearRampToValueAtTime(mode === "auth" ? 0.016 : 0.012, now + 0.06);
+        accentGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+        accent.connect(accentGain);
+        accentGain.connect(gain);
+        accent.start(now);
+        accent.stop(now + 0.75);
+      }, mode === "auth" ? 4200 : 5200);
+    };
+
+    const unlock = () => {
+      start().catch(() => undefined);
+    };
+
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    void start();
+
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      stop();
+    };
+  }, [mode]);
+}
+
 function useRetroSound() {
   return (kind: "select" | "confirm" | "error" = "select") => {
     if (typeof window === "undefined") {
@@ -174,12 +277,14 @@ export function OperatorApp() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("operator@domain.com");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [callsign, setCallsignValue] = useState("");
   const [activeView, setActiveView] = useState<View>("HOME");
   const [battleEvent, setBattleEvent] = useState<BattleEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const playSound = useRetroSound();
+  useBackgroundAmbience(!accessToken || !user ? "auth" : "app");
 
   useEffect(() => {
     hydrate();
@@ -197,6 +302,9 @@ export function OperatorApp() {
     setLoading(true);
     setError(null);
     try {
+      if (mode === "register" && password !== confirmPassword) {
+        throw new Error("Passwords do not match");
+      }
       playSound("confirm");
       const tokens = mode === "login" ? await login(email, password) : await register(email, password);
       setTokens(tokens);
@@ -244,9 +352,11 @@ export function OperatorApp() {
         loading={loading}
         mode={mode}
         password={password}
+        confirmPassword={confirmPassword}
         setEmail={setEmail}
         setMode={setMode}
         setPassword={setPassword}
+        setConfirmPassword={setConfirmPassword}
         submitAuth={submitAuth}
       />
     );
@@ -302,9 +412,12 @@ function Shell({
     <main className="min-h-screen pb-24 text-white">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-8">
         <header className="flex items-start justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-white/55">System Online</p>
-            <h1 className="operator-glow mt-2 text-4xl uppercase leading-none text-white">{callsign}</h1>
+          <div className="flex items-center gap-4">
+            <OperatorLogo className="h-16 w-16 shrink-0" />
+            <div>
+              <p className="text-xs uppercase tracking-[0.28em] text-white/55">System Online</p>
+              <h1 className="operator-glow mt-2 text-4xl uppercase leading-none text-white">{callsign}</h1>
+            </div>
           </div>
           <button className="border border-white/25 p-3 text-white/55" onClick={submitLogout} title="Logout">
             <LogOut size={22} />
@@ -2105,11 +2218,13 @@ function PlaceholderView({ body, title }: { body: string; title: string }) {
 }
 
 type AuthFrameProps = {
+  confirmPassword: string;
   email: string;
   error: string | null;
   loading: boolean;
   mode: "login" | "register";
   password: string;
+  setConfirmPassword: (value: string) => void;
   setEmail: (value: string) => void;
   setMode: (value: "login" | "register") => void;
   setPassword: (value: string) => void;
@@ -2117,13 +2232,15 @@ type AuthFrameProps = {
 };
 
 function AuthFrame(props: AuthFrameProps) {
+  const [showPassword, setShowPassword] = useState(false);
+  const strength = getPasswordStrength(props.password);
+  const passwordsMatch = props.confirmPassword.length === 0 || props.password === props.confirmPassword;
+
   return (
     <main className="flex min-h-screen items-center justify-center px-5 text-white">
       <section className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center border border-operator-purple text-operator-purple shadow-[0_0_24px_rgba(208,0,255,0.55)]">
-            <Zap size={30} />
-          </div>
+          <OperatorLogo className="mx-auto mb-5 h-24 w-24" />
           <h1 className="operator-glow text-4xl uppercase">OPERATOR</h1>
           <p className="mt-2 text-xs uppercase tracking-[0.45em] text-white/45">Level Up Your Life</p>
         </div>
@@ -2143,7 +2260,10 @@ function AuthFrame(props: AuthFrameProps) {
 
         <button
           className="mt-6 w-full text-center text-xs text-white/55"
-          onClick={() => props.setMode(props.mode === "login" ? "register" : "login")}
+          onClick={() => {
+            props.setConfirmPassword("");
+            props.setMode(props.mode === "login" ? "register" : "login");
+          }}
         >
           {props.mode === "login" ? "New operator? Create account" : "Existing operator? Sign in"}
         </button>
@@ -2165,9 +2285,7 @@ function CallsignGate(props: CallsignGateProps) {
   return (
     <main className="flex min-h-screen items-center justify-center px-5 text-white">
       <section className="w-full max-w-xl text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center border border-operator-purple text-operator-purple shadow-[0_0_24px_rgba(208,0,255,0.55)]">
-          <Target size={30} />
-        </div>
+        <OperatorLogo className="mx-auto mb-6 h-24 w-24" />
         <h1 className="operator-glow text-3xl uppercase">Create Character</h1>
         <p className="mt-2 text-sm text-white/55">Choose your callsign before entering the command center.</p>
         <input
@@ -2195,12 +2313,14 @@ function CallsignGate(props: CallsignGateProps) {
 }
 
 function CyberInput({
+  action,
   label,
   minLength,
   onChange,
   type = "text",
   value
 }: {
+  action?: ReactNode;
   label: string;
   minLength?: number;
   onChange: (value: string) => void;
@@ -2218,5 +2338,53 @@ function CyberInput({
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
+  );
+}
+
+function OperatorLogo({ className = "" }: { className?: string }) {
+  return (
+    <img
+      alt="Operator"
+      className={`operator-logo object-contain ${className}`}
+      height={128}
+      src={OPERATOR_LOGO_SRC}
+      width={128}
+    />
+  );
+}
+
+function getPasswordStrength(password: string) {
+  const checks = [
+    password.length >= 8,
+    /[A-Z]/.test(password),
+    /[a-z]/.test(password),
+    /[0-9]/.test(password),
+    /[^A-Za-z0-9]/.test(password)
+  ];
+  const score = password.length === 0 ? 0 : checks.filter(Boolean).length;
+  const labels = ["Empty", "Weak", "Fair", "Good", "Strong", "Elite"];
+  return { label: labels[score], score };
+}
+
+function PasswordStrengthMeter({ label, score }: { label: string; score: number }) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.18em]">
+        <span className="text-white/45">Password Strength</span>
+        <span className={score >= 4 ? "text-operator-cyan" : score >= 3 ? "text-operator-purple" : "text-red-300"}>
+          {label}
+        </span>
+      </div>
+      <div className="grid grid-cols-5 gap-2">
+        {Array.from({ length: 5 }, (_, index) => (
+          <span
+            className={`h-1 border border-white/10 ${
+              index < score ? (score >= 4 ? "bg-operator-cyan" : "bg-operator-purple") : "bg-white/10"
+            }`}
+            key={index}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
