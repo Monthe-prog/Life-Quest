@@ -105,7 +105,6 @@ import {
   type WeeklyReviewExport,
   updateGuildMemberRole,
   updateLeaderboardPrivacy,
-  updateCalendarBlock,
   updateCharacterCustomizer
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
