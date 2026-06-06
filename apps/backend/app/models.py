@@ -44,6 +44,9 @@ class UserProfile(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     callsign: Mapped[Optional[str]] = mapped_column(String(20), unique=True)
     life_mission: Mapped[Optional[str]] = mapped_column(Text)
+    vision_3_5_year: Mapped[Optional[str]] = mapped_column(Text)
+    one_year_goal: Mapped[Optional[str]] = mapped_column(Text)
+    onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     anonymous_on_leaderboard: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     user: Mapped[User] = relationship(back_populates="profile")
