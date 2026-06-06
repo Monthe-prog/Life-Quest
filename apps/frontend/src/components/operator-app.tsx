@@ -156,6 +156,7 @@ const goalSections: { horizon: GoalHorizon; title: string; prompt: string; child
   { horizon: "daily_part_2", title: "Daily - Part 2", prompt: "Evening execution list." }
 ];
 
+const GOALS_PER_TIER = 5;
 const weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const scheduleHours = Array.from({ length: 16 }, (_, index) => index + 7);
 const characterClasses: CharacterClass[] = ["Cyber-Monk", "Netrunner", "Dreadnought"];
@@ -1885,6 +1886,14 @@ function GoalsMatrix({
   });
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<Record<string, number>>({});
+  const [visibleGoalCounts, setVisibleGoalCounts] = useState<Record<GoalHorizon, number>>({
+    five_year: GOALS_PER_TIER,
+    yearly: GOALS_PER_TIER,
+    monthly: GOALS_PER_TIER,
+    weekly: GOALS_PER_TIER,
+    daily_part_1: GOALS_PER_TIER,
+    daily_part_2: GOALS_PER_TIER
+  });
   const [breakdownPreview, setBreakdownPreview] = useState<{
     goal: Goal;
     childHorizon: GoalHorizon;
@@ -1944,6 +1953,12 @@ function GoalsMatrix({
   }
 
   async function adjust(goal: Goal, delta: number) {
+    if (goal.is_complete && delta < 0) {
+      playSound("error");
+      setError("Completed goals are locked and cannot be unchecked.");
+      return;
+    }
+
     setBusy(goal.id);
     try {
       const response = await changeGoalProgress(accessToken, goal.id, delta);
@@ -2065,6 +2080,9 @@ function GoalsMatrix({
       {goalSections.map((section) => {
         const goals = goalList?.grouped[section.horizon] ?? [];
         const open = openSections[section.horizon];
+        const visibleCount = visibleGoalCounts[section.horizon] ?? GOALS_PER_TIER;
+        const visibleGoals = goals.slice(0, visibleCount);
+        const hiddenGoalCount = Math.max(0, goals.length - visibleGoals.length);
         const sectionTotal = goals.reduce((sum, goal) => sum + goal.target_count, 0);
         const sectionDone = goals.reduce((sum, goal) => sum + goal.completed_count, 0);
         return (
@@ -2100,7 +2118,7 @@ function GoalsMatrix({
                       No targets yet. Add one or use Oracle Breakdown from a parent goal.
                     </p>
                   )}
-                  {goals.map((goal) => (
+                  {visibleGoals.map((goal) => (
                     <GoalRow
                       busy={busy === goal.id}
                       childHorizon={section.child}
@@ -2115,6 +2133,19 @@ function GoalsMatrix({
                       target={targets[goal.id] ?? 1}
                     />
                   ))}
+                  {hiddenGoalCount > 0 && (
+                    <button
+                      className="w-full border border-operator-cyan/60 bg-operator-cyan/10 px-3 py-3 text-xs uppercase tracking-[0.18em] text-operator-cyan"
+                      onClick={() =>
+                        setVisibleGoalCounts((current) => ({
+                          ...current,
+                          [section.horizon]: (current[section.horizon] ?? GOALS_PER_TIER) + GOALS_PER_TIER
+                        }))
+                      }
+                    >
+                      Load More ({hiddenGoalCount} hidden)
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -2192,6 +2223,7 @@ function GoalRow({
   target: number;
 }) {
   const canBreakdown = goal.horizon !== "daily_part_2";
+  const decrementLocked = goal.is_complete || goal.completed_count <= 0;
   return (
     <div className="border border-white/10 bg-black/25 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2202,7 +2234,12 @@ function GoalRow({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="border border-white/20 p-2 text-white/55" disabled={busy} onClick={() => onAdjust(goal, -1)}>
+          <button
+            className="border border-white/20 p-2 text-white/55 disabled:cursor-not-allowed disabled:opacity-35"
+            disabled={busy || decrementLocked}
+            onClick={() => onAdjust(goal, -1)}
+            title={goal.is_complete ? "Completed goals are locked" : "Decrease progress"}
+          >
             <Minus size={14} />
           </button>
           <span className="min-w-14 text-center text-sm text-operator-cyan">
@@ -2468,9 +2505,9 @@ function CharacterView({
         <article className="operator-panel min-h-80 p-4">
           <ResponsiveContainer height={300} width="100%">
             <RadarChart data={radarData}>
-              <PolarGrid stroke="rgba(208,0,255,0.35)" />
-              <PolarAngleAxis dataKey="stat" stroke="#D000FF" tick={{ fill: "#D000FF", fontSize: 11 }} />
-              <Radar dataKey="level" fill="#00F0FF" fillOpacity={0.22} stroke="#00F0FF" strokeWidth={2} />
+              <PolarGrid stroke="rgba(183,114,255,0.35)" />
+              <PolarAngleAxis dataKey="stat" stroke="#B772FF" tick={{ fill: "#B772FF", fontSize: 11 }} />
+              <Radar dataKey="level" fill="#6DF7D2" fillOpacity={0.22} stroke="#6DF7D2" strokeWidth={2} />
             </RadarChart>
           </ResponsiveContainer>
         </article>
@@ -2963,20 +3000,20 @@ function CosmeticSelector({
 function PixelAvatar({ profile }: { profile: CharacterProfile }) {
   const classColor =
     profile.character_class === "Cyber-Monk"
-      ? "#D000FF"
+      ? "#B772FF"
       : profile.character_class === "Dreadnought"
-        ? "#FF7A00"
-        : "#00F0FF";
+        ? "#F2A14A"
+        : "#6DF7D2";
   const bodyWidth = profile.body_cosmetic === "armor" ? 86 : profile.body_cosmetic === "jacket" ? 72 : 64;
   const headShape = profile.head_cosmetic === "hood" ? "rounded-t-[28px]" : "rounded-sm";
   const gearLabel = profile.gear_cosmetic === "deck" ? "DATA" : profile.gear_cosmetic === "gauntlet" ? "FIST" : "BLADE";
 
   return (
     <div className="relative mx-auto flex h-72 w-full max-w-64 items-center justify-center overflow-hidden border border-operator-cyan/50 bg-black/50">
-      <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(0,240,255,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(208,0,255,0.1)_1px,transparent_1px)] [background-size:18px_18px]" />
+      <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(rgba(109,247,210,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(183,114,255,0.1)_1px,transparent_1px)] [background-size:18px_18px]" />
       <div className="relative flex flex-col items-center">
         {profile.head_cosmetic === "halo" && (
-          <div className="mb-1 h-2 w-20 border border-operator-purple shadow-[0_0_16px_rgba(208,0,255,0.8)]" />
+          <div className="mb-1 h-2 w-20 border border-operator-purple shadow-[0_0_16px_rgba(183,114,255,0.8)]" />
         )}
         <div
           className={`relative h-16 w-20 border-2 bg-black ${headShape}`}
@@ -3731,7 +3768,7 @@ function GuildModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-5">
-      <section className="w-full max-w-lg border border-operator-purple bg-[#050507] p-5">
+      <section className="w-full max-w-lg border border-operator-purple bg-[#07080A] p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="operator-glow text-2xl uppercase">{title}</h3>
           <button className="text-white/60" onClick={onClose} title="Close">
@@ -3771,6 +3808,7 @@ function AuthFrame(props: AuthFrameProps) {
   const [showPassword, setShowPassword] = useState(false);
   const strength = getPasswordStrength(props.password);
   const passwordsMatch = props.confirmPassword.length === 0 || props.password === props.confirmPassword;
+  const passwordType = showPassword ? "text" : "password";
 
   return (
     <main className="flex min-h-screen items-center justify-center px-5 text-white">
@@ -3783,11 +3821,41 @@ function AuthFrame(props: AuthFrameProps) {
 
         <div className="space-y-4">
           <CyberInput label="Email" value={props.email} onChange={props.setEmail} />
-          <CyberInput label="Password" minLength={8} type="password" value={props.password} onChange={props.setPassword} />
+          <CyberInput
+            action={
+              <button
+                className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-white/55 hover:text-operator-cyan"
+                onClick={() => setShowPassword((current) => !current)}
+                title={showPassword ? "Hide password" : "Show password"}
+                type="button"
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            }
+            label="Password"
+            minLength={8}
+            type={passwordType}
+            value={props.password}
+            onChange={props.setPassword}
+          />
+          {props.mode === "register" && (
+            <>
+              <PasswordStrengthMeter label={strength.label} score={strength.score} />
+              <CyberInput
+                label="Confirm Password"
+                minLength={8}
+                type={passwordType}
+                value={props.confirmPassword}
+                onChange={props.setConfirmPassword}
+              />
+              {!passwordsMatch && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">Passwords do not match</p>}
+            </>
+          )}
           {props.error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{props.error}</p>}
           <button
-            className="w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(208,0,255,0.45)] disabled:opacity-50"
-            disabled={props.loading}
+            className="w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(183,114,255,0.45)] disabled:opacity-50"
+            disabled={props.loading || (props.mode === "register" && (!passwordsMatch || strength.score < 3))}
             onClick={props.submitAuth}
           >
             {props.loading ? "Syncing" : props.mode === "login" ? "Initialize" : "Create Account"}
@@ -3834,7 +3902,7 @@ function CallsignGate(props: CallsignGateProps) {
         <p className="mt-3 text-xs text-white/45">3-20 characters. Letters, numbers, underscores, or hyphens.</p>
         {props.error && <p className="mt-4 border border-red-500/70 px-3 py-2 text-sm text-red-300">{props.error}</p>}
         <button
-          className="mt-8 w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(208,0,255,0.45)] disabled:opacity-50"
+          className="mt-8 w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(183,114,255,0.45)] disabled:opacity-50"
           disabled={props.loading}
           onClick={props.submitCallsign}
         >
@@ -3865,7 +3933,10 @@ function CyberInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm uppercase tracking-[0.22em] text-operator-purple">{label}</span>
+      <span className="mb-2 flex items-center justify-between gap-3">
+        <span className="block text-sm uppercase tracking-[0.22em] text-operator-purple">{label}</span>
+        {action}
+      </span>
       <input
         className="w-full border border-operator-purple/70 bg-operator-surface px-4 py-4 text-sm outline-none focus:border-operator-cyan"
         minLength={minLength}
