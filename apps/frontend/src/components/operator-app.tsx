@@ -1837,7 +1837,11 @@ function GuildView({
   }, [accessToken]);
 
   useEffect(() => {
-    const wsBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
+    const wsBase =
+      process.env.NEXT_PUBLIC_WS_BASE_URL ||
+      (typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:8000`
+        : "ws://localhost:8000");
     const socket = new WebSocket(`${wsBase}/ws/guild-feed?token=${encodeURIComponent(accessToken)}`);
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data);
