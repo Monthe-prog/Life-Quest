@@ -96,11 +96,74 @@ export type Guild = {
   motto: string | null;
   role: string | null;
   invite_code: string | null;
+  member_count: number;
+  guild_xp: number;
 };
 
 export type GuildStatus = {
   aligned: boolean;
   guild: Guild | null;
+};
+
+export type GuildMember = {
+  user_id: string;
+  callsign: string;
+  role: "owner" | "moderator" | "member" | string;
+  xp: number;
+  level: number;
+  completion_rate: number;
+  anonymous_on_leaderboard: boolean;
+  is_current_user: boolean;
+  joined_at: string;
+};
+
+export type LeaderboardEntry = {
+  user_id: string;
+  display_name: string;
+  rank: number;
+  xp: number;
+  weekly_xp: number;
+  streak_length: number;
+  stat_key: string | null;
+  stat_xp: number | null;
+};
+
+export type ModerationEvent = {
+  id: string;
+  event_type: string;
+  actor: string;
+  target: string | null;
+  created_at: string;
+  detail: string | null;
+};
+
+export type GuildOverview = {
+  guild: Guild;
+  members: GuildMember[];
+  leaderboard: LeaderboardEntry[];
+  moderation_feed: ModerationEvent[];
+};
+
+export type ReactionTrend = {
+  top_emoji: string | null;
+  top_count: number;
+  previous_top_emoji: string | null;
+  previous_top_count: number;
+  last_changed_at: string | null;
+};
+
+export type GuildMessage = {
+  id: string;
+  author_id: string;
+  author: string;
+  body: string;
+  goal_id: string | null;
+  task_ref: string | null;
+  created_at: string;
+  reactions: Record<string, number>;
+  my_reaction: string | null;
+  suggested_emoji: string;
+  trend: ReactionTrend;
 };
 
 export type FeedEvent = {
@@ -359,6 +422,101 @@ export function discoverGuilds(accessToken: string) {
     headers: {
       Authorization: `Bearer ${accessToken}`
     }
+  });
+}
+
+export function getGuildOverview(accessToken: string) {
+  return apiRequest<GuildOverview>("/api/guilds/overview", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function getGuildMessages(
+  accessToken: string,
+  filters: Partial<{ search: string; member_id: string; from: string; to: string; reaction: string }> = {}
+) {
+  const query = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) {
+      query.set(key, value);
+    }
+  });
+  return apiRequest<GuildMessage[]>(`/api/guilds/messages${query.size ? `?${query.toString()}` : ""}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function postGuildMessage(accessToken: string, payload: { body: string; goal_id?: string | null; task_ref?: string | null }) {
+  return apiRequest<GuildMessage>("/api/guilds/messages", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function toggleGuildReaction(accessToken: string, messageId: string, emoji: string) {
+  return apiRequest<GuildMessage>(`/api/guilds/messages/${messageId}/reaction`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({ emoji })
+  });
+}
+
+export function hideGuildMessage(accessToken: string, messageId: string) {
+  return apiRequest<void>(`/api/guilds/messages/${messageId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function updateGuildMemberRole(accessToken: string, memberId: string, role: "moderator" | "member") {
+  return apiRequest<GuildOverview>(`/api/guilds/members/${memberId}/role`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({ role })
+  });
+}
+
+export function removeGuildMember(accessToken: string, memberId: string) {
+  return apiRequest<GuildOverview>(`/api/guilds/members/${memberId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function getGlobalLeaderboard(accessToken: string, metric: "total_xp" | "streak" | "stat" = "total_xp", statKey?: string) {
+  const query = new URLSearchParams({ metric });
+  if (statKey) {
+    query.set("stat_key", statKey);
+  }
+  return apiRequest<LeaderboardEntry[]>(`/api/guilds/leaderboard/global?${query.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function updateLeaderboardPrivacy(accessToken: string, anonymous_on_leaderboard: boolean) {
+  return apiRequest<{ anonymous_on_leaderboard: boolean }>("/api/guilds/leaderboard/privacy", {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({ anonymous_on_leaderboard })
   });
 }
 

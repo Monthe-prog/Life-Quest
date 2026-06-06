@@ -18,14 +18,17 @@ import {
   Home,
   Lock,
   LogOut,
+  MessageSquare,
   Minus,
   Plus,
+  Search,
   Shield,
   ShieldPlus,
   Sparkles,
   Target,
   Trash2,
   Trophy,
+  UserMinus,
   UserRound,
   Users,
   Wallet,
@@ -44,6 +47,9 @@ import {
   getCharacterProfile,
   getCalendarWeek,
   getGlobalFeed,
+  getGlobalLeaderboard,
+  getGuildMessages,
+  getGuildOverview,
   getGuildStatus,
   getMe,
   getOracleStatus,
@@ -53,10 +59,14 @@ import {
   login,
   logout,
   oracleBreakdown,
+  hideGuildMessage,
+  postGuildMessage,
   register,
+  removeGuildMember,
   setCallsign,
   suggestCalendar,
   spawnChildGoal,
+  toggleGuildReaction,
   type BattleEvent,
   type CalendarBlock,
   type CharacterClass,
@@ -67,9 +77,16 @@ import {
   type GoalHorizon,
   type GoalList,
   type Guild,
+  type GuildMember,
+  type GuildMessage,
+  type GuildOverview,
   type GuildStatus,
+  type LeaderboardEntry,
   type OracleReply,
   type OracleStatus,
+  type ModerationEvent,
+  updateGuildMemberRole,
+  updateLeaderboardPrivacy,
   updateCharacterCustomizer
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -1526,31 +1543,57 @@ function GuildView({
   accessToken: string;
   playSound: (kind?: "select" | "confirm" | "error") => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"MY GUILD" | "GUILDS" | "GLOBAL">("MY GUILD");
+  const [activeTab, setActiveTab] = useState<"MY GUILD" | "CHAT" | "GLOBAL">("MY GUILD");
   const [status, setStatus] = useState<GuildStatus | null>(null);
+  const [overview, setOverview] = useState<GuildOverview | null>(null);
   const [guilds, setGuilds] = useState<Guild[]>([]);
   const [feed, setFeed] = useState<FeedEvent[]>([]);
+  const [messages, setMessages] = useState<GuildMessage[]>([]);
+  const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [modal, setModal] = useState<"forge" | "join" | null>(null);
   const [guildName, setGuildName] = useState("");
   const [motto, setMotto] = useState("");
   const [joinCode, setJoinCode] = useState("");
+  const [chatInput, setChatInput] = useState("");
+  const [taskRef, setTaskRef] = useState("");
+  const [messageSearch, setMessageSearch] = useState("");
+  const [memberFilter, setMemberFilter] = useState("");
+  const [reactionFilter, setReactionFilter] = useState("");
+  const [globalMetric, setGlobalMetric] = useState<"total_xp" | "streak" | "stat">("total_xp");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function refreshGuild() {
-    const [nextStatus, nextGuilds, nextFeed] = await Promise.all([
+    const [nextStatus, nextGuilds, nextFeed, nextGlobalLeaderboard] = await Promise.all([
       getGuildStatus(accessToken),
       discoverGuilds(accessToken),
-      getGlobalFeed(accessToken)
+      getGlobalFeed(accessToken),
+      getGlobalLeaderboard(accessToken, globalMetric, globalMetric === "stat" ? "intellect" : undefined)
     ]);
     setStatus(nextStatus);
     setGuilds(nextGuilds);
     setFeed(nextFeed);
+    setGlobalLeaderboard(nextGlobalLeaderboard);
+    if (nextStatus.aligned) {
+      const [nextOverview, nextMessages] = await Promise.all([
+        getGuildOverview(accessToken),
+        getGuildMessages(accessToken, {
+          search: messageSearch,
+          member_id: memberFilter,
+          reaction: reactionFilter
+        })
+      ]);
+      setOverview(nextOverview);
+      setMessages(nextMessages);
+    } else {
+      setOverview(null);
+      setMessages([]);
+    }
   }
 
   useEffect(() => {
     refreshGuild().catch((err) => setError(err instanceof Error ? err.message : "Unable to load guild data"));
-  }, [accessToken]);
+  }, [accessToken, globalMetric, memberFilter, messageSearch, reactionFilter]);
 
   useEffect(() => {
     const wsBase = process.env.NEXT_PUBLIC_WS_BASE_URL ?? "ws://localhost:8000";
@@ -1575,6 +1618,10 @@ function GuildView({
     };
     return () => socket.close();
   }, [accessToken]);
+
+  const myRole = overview?.guild.role ?? status?.guild?.role ?? "member";
+  const canModerate = myRole === "owner" || myRole === "moderator";
+  const canOwn = myRole === "owner";
 
   async function submitForge() {
     if (!guildName.trim()) {
@@ -1622,6 +1669,84 @@ function GuildView({
     }
   }
 
+  async function sendMessage() {
+    if (!chatInput.trim()) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      playSound("confirm");
+      await postGuildMessage(accessToken, { body: chatInput.trim(), task_ref: taskRef.trim() || undefined });
+      setChatInput("");
+      setTaskRef("");
+      setMessages(await getGuildMessages(accessToken, { search: messageSearch, member_id: memberFilter, reaction: reactionFilter }));
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Message send failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reactToMessage(message: GuildMessage, emoji: string) {
+    try {
+      playSound("select");
+      const updated = await toggleGuildReaction(accessToken, message.id, emoji);
+      setMessages((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Reaction rate limit active");
+    }
+  }
+
+  async function moderateMessage(message: GuildMessage) {
+    setBusy(true);
+    setError(null);
+    try {
+      await hideGuildMessage(accessToken, message.id);
+      setMessages((current) => current.filter((item) => item.id !== message.id));
+      setOverview(await getGuildOverview(accessToken));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message moderation failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeRole(member: GuildMember, role: "moderator" | "member") {
+    setBusy(true);
+    setError(null);
+    try {
+      playSound("confirm");
+      setOverview(await updateGuildMemberRole(accessToken, member.user_id, role));
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Role update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function kickMember(member: GuildMember) {
+    setBusy(true);
+    setError(null);
+    try {
+      playSound("confirm");
+      setOverview(await removeGuildMember(accessToken, member.user_id));
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Member removal failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function togglePrivacy(enabled: boolean) {
+    await updateLeaderboardPrivacy(accessToken, enabled).catch((err) => setError(err instanceof Error ? err.message : "Privacy update failed"));
+    await refreshGuild().catch(() => undefined);
+  }
+
   return (
     <section className="space-y-5">
       <div>
@@ -1632,7 +1757,7 @@ function GuildView({
       {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       <div className="grid grid-cols-3 border border-white/10 bg-black/40">
-        {(["MY GUILD", "GUILDS", "GLOBAL"] as const).map((tab) => (
+        {(["MY GUILD", "CHAT", "GLOBAL"] as const).map((tab) => (
           <button
             className={`flex items-center justify-center gap-2 px-2 py-3 text-xs uppercase ${
               activeTab === tab ? "bg-operator-purple/15 text-white" : "text-white/50"
@@ -1644,7 +1769,7 @@ function GuildView({
             }}
           >
             {tab === "MY GUILD" && <Shield size={15} />}
-            {tab === "GUILDS" && <Trophy size={15} />}
+            {tab === "CHAT" && <MessageSquare size={15} />}
             {tab === "GLOBAL" && <Globe2 size={15} />}
             {tab}
           </button>
@@ -1654,23 +1779,18 @@ function GuildView({
       {activeTab === "MY GUILD" && (
         <section className="operator-panel p-5">
           {status?.aligned && status.guild ? (
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h3 className="operator-glow text-2xl uppercase">{status.guild.name}</h3>
-                  <p className="mt-2 text-sm text-white/55">{status.guild.motto || "No motto encoded."}</p>
-                </div>
-                <span className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan">
-                  {status.guild.role}
-                </span>
-              </div>
-              <div className="mt-5 border border-white/10 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/45">Single-use access token</p>
-                <p className="mt-2 text-3xl uppercase tracking-[0.35em] text-operator-cyan">
-                  {status.guild.invite_code ?? "CONSUMED"}
-                </p>
-              </div>
-            </div>
+            <GuildDashboard
+              canModerate={canModerate}
+              canOwn={canOwn}
+              guild={overview?.guild ?? status.guild}
+              members={overview?.members ?? []}
+              moderationFeed={overview?.moderation_feed ?? []}
+              leaderboard={overview?.leaderboard ?? []}
+              busy={busy}
+              onKick={kickMember}
+              onPrivacyToggle={togglePrivacy}
+              onRoleChange={changeRole}
+            />
           ) : (
             <div className="py-5 text-center">
               <Shield className="mx-auto text-operator-purple" size={40} />
@@ -1697,24 +1817,41 @@ function GuildView({
         </section>
       )}
 
-      {activeTab === "GUILDS" && (
-        <section className="space-y-3">
-          {guilds.length === 0 && <p className="operator-panel p-5 text-sm text-white/45">No guild signals discovered.</p>}
-          {guilds.map((guild) => (
-            <article className="operator-panel p-4" key={guild.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg uppercase text-white">{guild.name}</h3>
-                  <p className="mt-1 text-sm text-white/50">{guild.motto || "No motto encoded."}</p>
-                </div>
-                {guild.invite_code && <span className="text-xs uppercase text-operator-cyan">Open token</span>}
-              </div>
-            </article>
-          ))}
-        </section>
+      {activeTab === "CHAT" && (
+        status?.aligned ? (
+          <GuildChat
+            busy={busy}
+            canModerate={canModerate}
+            chatInput={chatInput}
+            members={overview?.members ?? []}
+            memberFilter={memberFilter}
+            messageSearch={messageSearch}
+            messages={messages}
+            reactionFilter={reactionFilter}
+            setChatInput={setChatInput}
+            setMemberFilter={setMemberFilter}
+            setMessageSearch={setMessageSearch}
+            setReactionFilter={setReactionFilter}
+            setTaskRef={setTaskRef}
+            taskRef={taskRef}
+            onHide={moderateMessage}
+            onReact={reactToMessage}
+            onSend={sendMessage}
+          />
+        ) : (
+          <section className="operator-panel p-5 text-sm text-white/45">Join a guild to open chat.</section>
+        )
       )}
 
-      {activeTab === "GLOBAL" && <GlobalFeed feed={feed} />}
+      {activeTab === "GLOBAL" && (
+        <GlobalSocial
+          feed={feed}
+          guilds={guilds}
+          leaderboard={globalLeaderboard}
+          metric={globalMetric}
+          setMetric={setGlobalMetric}
+        />
+      )}
 
       {modal === "forge" && (
         <GuildModal title="Forge Guild" onClose={() => setModal(null)}>
@@ -1762,23 +1899,347 @@ function GuildView({
   );
 }
 
-function GlobalFeed({ feed }: { feed: FeedEvent[] }) {
+function GuildDashboard({
+  busy,
+  canModerate,
+  canOwn,
+  guild,
+  leaderboard,
+  members,
+  moderationFeed,
+  onKick,
+  onPrivacyToggle,
+  onRoleChange
+}: {
+  busy: boolean;
+  canModerate: boolean;
+  canOwn: boolean;
+  guild: Guild;
+  leaderboard: LeaderboardEntry[];
+  members: GuildMember[];
+  moderationFeed: ModerationEvent[];
+  onKick: (member: GuildMember) => void;
+  onPrivacyToggle: (enabled: boolean) => void;
+  onRoleChange: (member: GuildMember, role: "moderator" | "member") => void;
+}) {
+  const self = members.find((member) => member.is_current_user);
   return (
-    <section className="operator-cyan-panel p-4">
-      <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Global Feed</h3>
-      <div className="mt-4 space-y-3">
-        {feed.length === 0 && <p className="py-4 text-sm text-white/45">No public completions broadcast yet.</p>}
-        {feed.map((event) => (
-          <article className="border border-white/10 bg-black/30 p-3" key={event.id}>
-            <p className="text-sm uppercase text-white">
-              {event.operator} defeated {event.goal_title || "an unnamed target"}
-            </p>
-            <p className="mt-1 text-xs uppercase text-operator-cyan">
-              +{event.xp_awarded ?? 0} XP / {event.stat_key ?? "unknown"} sync
-            </p>
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h3 className="operator-glow text-2xl uppercase">{guild.name}</h3>
+          <p className="mt-2 text-sm text-white/55">{guild.motto || "No motto encoded."}</p>
+        </div>
+        <span className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan">{guild.role}</span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatTile label="Members" value={`${guild.member_count}/10`} />
+        <StatTile label="Guild XP" value={guild.guild_xp.toLocaleString()} />
+        <StatTile label="Invite" value={guild.invite_code ?? "PRIVATE"} />
+      </div>
+
+      {self && (
+        <label className="flex items-center justify-between gap-4 border border-white/10 bg-black/30 p-3 text-sm text-white/60">
+          <span>Anonymous global leaderboard display</span>
+          <input
+            checked={self.anonymous_on_leaderboard}
+            className="h-5 w-5 accent-cyan-300"
+            type="checkbox"
+            onChange={(event) => onPrivacyToggle(event.target.checked)}
+          />
+        </label>
+      )}
+
+      <section>
+        <h4 className="mb-3 text-xs uppercase tracking-[0.25em] text-operator-cyan">Guild Leaderboard</h4>
+        <div className="space-y-2">
+          {leaderboard.map((entry) => (
+            <article className="grid grid-cols-[40px_1fr_auto] items-center gap-3 border border-white/10 bg-black/25 p-3" key={entry.user_id}>
+              <span className="text-lg text-operator-purple">#{entry.rank}</span>
+              <div>
+                <p className="text-sm uppercase text-white">{entry.display_name}</p>
+                <p className="text-xs text-white/45">Weekly reset score: {entry.weekly_xp} XP</p>
+              </div>
+              <span className="text-sm text-operator-cyan">{entry.xp} XP</span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <h4 className="mb-3 text-xs uppercase tracking-[0.25em] text-operator-cyan">Roster</h4>
+        <div className="space-y-2">
+          {members.map((member) => (
+            <article className="border border-white/10 bg-black/25 p-3" key={member.user_id}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase text-white">{member.callsign}</p>
+                  <p className="text-xs uppercase text-white/45">
+                    {member.role} / Level {member.level} / {member.completion_rate}% completion
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {canOwn && member.role !== "owner" && (
+                    <button
+                      className="border border-operator-cyan px-2 py-1 text-xs uppercase text-operator-cyan disabled:opacity-40"
+                      disabled={busy}
+                      onClick={() => onRoleChange(member, member.role === "moderator" ? "member" : "moderator")}
+                    >
+                      {member.role === "moderator" ? "Demote" : "Mod"}
+                    </button>
+                  )}
+                  {canModerate && member.role !== "owner" && (
+                    <button
+                      className="border border-red-400/70 px-2 py-1 text-red-300 disabled:opacity-40"
+                      disabled={busy}
+                      title="Remove member"
+                      onClick={() => onKick(member)}
+                    >
+                      <UserMinus size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <ModerationFeed events={moderationFeed} />
+    </div>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="border border-white/10 bg-black/30 p-3 text-center">
+      <p className="text-lg uppercase text-operator-cyan">{value}</p>
+      <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-white/45">{label}</p>
+    </article>
+  );
+}
+
+function GuildChat({
+  busy,
+  canModerate,
+  chatInput,
+  memberFilter,
+  members,
+  messageSearch,
+  messages,
+  reactionFilter,
+  setChatInput,
+  setMemberFilter,
+  setMessageSearch,
+  setReactionFilter,
+  setTaskRef,
+  taskRef,
+  onHide,
+  onReact,
+  onSend
+}: {
+  busy: boolean;
+  canModerate: boolean;
+  chatInput: string;
+  memberFilter: string;
+  members: GuildMember[];
+  messageSearch: string;
+  messages: GuildMessage[];
+  reactionFilter: string;
+  setChatInput: (value: string) => void;
+  setMemberFilter: (value: string) => void;
+  setMessageSearch: (value: string) => void;
+  setReactionFilter: (value: string) => void;
+  setTaskRef: (value: string) => void;
+  taskRef: string;
+  onHide: (message: GuildMessage) => void;
+  onReact: (message: GuildMessage, emoji: string) => void;
+  onSend: () => void;
+}) {
+  const emojiOptions = ["🔥", "💪", "✅", "🎯", "🙌", "🧠"];
+  return (
+    <section className="operator-cyan-panel space-y-4 p-4">
+      <div className="grid gap-2 sm:grid-cols-[1fr_150px_110px]">
+        <label className="flex items-center gap-2 border border-white/10 bg-black/30 px-3">
+          <Search size={16} className="text-white/35" />
+          <input
+            className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none"
+            placeholder="Search messages"
+            value={messageSearch}
+            onChange={(event) => setMessageSearch(event.target.value)}
+          />
+        </label>
+        <select className="border border-white/10 bg-black/60 px-2 py-2 text-sm" value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)}>
+          <option value="">All members</option>
+          {members.map((member) => (
+            <option key={member.user_id} value={member.user_id}>
+              {member.callsign}
+            </option>
+          ))}
+        </select>
+        <select className="border border-white/10 bg-black/60 px-2 py-2 text-sm" value={reactionFilter} onChange={(event) => setReactionFilter(event.target.value)}>
+          <option value="">All emoji</option>
+          {emojiOptions.map((emoji) => (
+            <option key={emoji} value={emoji}>
+              {emoji}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
+        {messages.length === 0 && <p className="py-4 text-sm text-white/45">No guild messages match this view.</p>}
+        {messages.map((message) => (
+          <article className="border border-white/10 bg-black/35 p-3" key={message.id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.18em] text-operator-purple">{message.author}</p>
+                <p className="mt-2 text-sm leading-6 text-white/85">{message.body}</p>
+                {message.task_ref && <p className="mt-2 text-xs uppercase text-operator-cyan">Task: {message.task_ref}</p>}
+              </div>
+              {canModerate && (
+                <button className="text-white/40 hover:text-red-300" title="Hide message" onClick={() => onHide(message)}>
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {[message.suggested_emoji, ...emojiOptions.filter((emoji) => emoji !== message.suggested_emoji)].slice(0, 6).map((emoji) => (
+                <button
+                  className={`border px-2 py-1 text-sm ${message.my_reaction === emoji ? "border-operator-cyan bg-operator-cyan/15" : "border-white/10 bg-black/40"}`}
+                  key={emoji}
+                  title={trendTitle(message)}
+                  onClick={() => onReact(message, emoji)}
+                >
+                  {emoji} {message.reactions[emoji] ?? 0}
+                </button>
+              ))}
+              {message.trend.top_emoji && (
+                <span className="text-xs uppercase text-white/40" title={trendTitle(message)}>
+                  Top {message.trend.top_emoji} {message.trend.top_count}
+                </span>
+              )}
+            </div>
           </article>
         ))}
       </div>
+
+      <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]">
+        <input
+          className="min-w-0 border border-operator-cyan/60 bg-black/50 px-3 py-3 text-sm outline-none"
+          placeholder="Check in, ask for accountability, or paste a goal link"
+          value={chatInput}
+          onChange={(event) => setChatInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              onSend();
+            }
+          }}
+        />
+        <input
+          className="min-w-0 border border-white/15 bg-black/50 px-3 py-3 text-sm outline-none"
+          placeholder="Task ref"
+          value={taskRef}
+          onChange={(event) => setTaskRef(event.target.value)}
+        />
+        <button className="border border-operator-cyan bg-operator-cyan/10 px-4 text-sm uppercase text-operator-cyan disabled:opacity-40" disabled={busy} onClick={onSend}>
+          Send
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function trendTitle(message: GuildMessage) {
+  const changed = message.trend.last_changed_at ? new Date(message.trend.last_changed_at).toLocaleString() : "No changes yet";
+  return `Last change: ${changed}. Previous top: ${message.trend.previous_top_emoji ?? "none"} (${message.trend.previous_top_count}).`;
+}
+
+function ModerationFeed({ events }: { events: ModerationEvent[] }) {
+  return (
+    <section>
+      <h4 className="mb-3 text-xs uppercase tracking-[0.25em] text-operator-cyan">Moderation Feed</h4>
+      <div className="space-y-2">
+        {events.length === 0 && <p className="border border-white/10 bg-black/25 p-3 text-sm text-white/45">No moderation events recorded.</p>}
+        {events.map((event) => (
+          <article className="border border-white/10 bg-black/25 p-3 text-xs uppercase text-white/50" key={event.id}>
+            <span className="text-white">{event.actor}</span> {event.event_type.replace("_", " ")}
+            {event.target ? <span> / {event.target}</span> : null}
+            <span className="block pt-1 text-white/35">{new Date(event.created_at).toLocaleString()}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function GlobalSocial({
+  feed,
+  guilds,
+  leaderboard,
+  metric,
+  setMetric
+}: {
+  feed: FeedEvent[];
+  guilds: Guild[];
+  leaderboard: LeaderboardEntry[];
+  metric: "total_xp" | "streak" | "stat";
+  setMetric: (metric: "total_xp" | "streak" | "stat") => void;
+}) {
+  return (
+    <section className="space-y-4">
+      <section className="operator-cyan-panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Global Leaderboard</h3>
+          <select className="border border-white/10 bg-black/60 px-2 py-2 text-sm" value={metric} onChange={(event) => setMetric(event.target.value as "total_xp" | "streak" | "stat")}>
+            <option value="total_xp">Weekly XP</option>
+            <option value="streak">Streak</option>
+            <option value="stat">Intellect</option>
+          </select>
+        </div>
+        <div className="mt-4 space-y-2">
+          {leaderboard.map((entry) => (
+            <article className="grid grid-cols-[40px_1fr_auto] items-center gap-3 border border-white/10 bg-black/30 p-3" key={entry.user_id}>
+              <span className="text-operator-purple">#{entry.rank}</span>
+              <p className="text-sm uppercase text-white">{entry.display_name}</p>
+              <span className="text-xs uppercase text-operator-cyan">
+                {metric === "streak" ? `${entry.streak_length} days` : metric === "stat" ? `${entry.stat_xp ?? 0} XP` : `${entry.weekly_xp} XP`}
+              </span>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operator-panel p-4">
+        <h3 className="text-sm uppercase tracking-[0.3em] text-operator-purple">Private Guild Signals</h3>
+        <div className="mt-4 space-y-3">
+          {guilds.length === 0 && <p className="text-sm text-white/45">No guild signals discovered.</p>}
+          {guilds.map((guild) => (
+            <article className="border border-white/10 bg-black/30 p-3" key={guild.id}>
+              <p className="text-sm uppercase text-white">{guild.name}</p>
+              <p className="mt-1 text-xs text-white/45">
+                {guild.member_count}/10 members / {guild.guild_xp} guild XP
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="operator-cyan-panel p-4">
+        <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Global Feed</h3>
+        <div className="mt-4 space-y-3">
+          {feed.length === 0 && <p className="py-4 text-sm text-white/45">No public completions broadcast yet.</p>}
+          {feed.map((event) => (
+            <article className="border border-white/10 bg-black/30 p-3" key={event.id}>
+              <p className="text-sm uppercase text-white">{event.operator} defeated {event.goal_title || "an unnamed target"}</p>
+              <p className="mt-1 text-xs uppercase text-operator-cyan">
+                +{event.xp_awarded ?? 0} XP / {event.stat_key ?? "unknown"} sync
+              </p>
+            </article>
+          ))}
+        </div>
+      </section>
     </section>
   );
 }

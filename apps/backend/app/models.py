@@ -44,6 +44,7 @@ class UserProfile(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     callsign: Mapped[Optional[str]] = mapped_column(String(20), unique=True)
     life_mission: Mapped[Optional[str]] = mapped_column(Text)
+    anonymous_on_leaderboard: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     user: Mapped[User] = relationship(back_populates="profile")
 
@@ -190,6 +191,64 @@ class GuildInviteCode(Base, TimestampMixin):
     guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
     code: Mapped[str] = mapped_column(String(6), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class GuildModerationEvent(Base, TimestampMixin):
+    __tablename__ = "guild_moderation_events"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    target_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+
+class GuildChatMessage(Base, TimestampMixin):
+    __tablename__ = "guild_chat_messages"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    guild_id: Mapped[str] = mapped_column(ForeignKey("guilds.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    goal_id: Mapped[Optional[str]] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), index=True)
+    task_ref: Mapped[Optional[str]] = mapped_column(String(120))
+    is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hidden_by_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    hidden_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class GuildChatReaction(Base, TimestampMixin):
+    __tablename__ = "guild_chat_reactions"
+    __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_guild_chat_reaction_user"),)
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    message_id: Mapped[str] = mapped_column(ForeignKey("guild_chat_messages.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    emoji: Mapped[str] = mapped_column(String(16), nullable=False)
+
+
+class GuildReactionTrend(Base, TimestampMixin):
+    __tablename__ = "guild_reaction_trends"
+    __table_args__ = (UniqueConstraint("message_id", name="uq_guild_reaction_trend_message"),)
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    message_id: Mapped[str] = mapped_column(ForeignKey("guild_chat_messages.id", ondelete="CASCADE"), index=True, nullable=False)
+    top_emoji: Mapped[Optional[str]] = mapped_column(String(16))
+    top_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    previous_top_emoji: Mapped[Optional[str]] = mapped_column(String(16))
+    previous_top_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class GuildReactionToggle(Base, TimestampMixin):
+    __tablename__ = "guild_reaction_toggles"
+    __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_guild_reaction_toggle_user"),)
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    message_id: Mapped[str] = mapped_column(ForeignKey("guild_chat_messages.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    last_toggled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
 
 
 class ActivityEvent(Base, TimestampMixin):
