@@ -4,17 +4,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models import CalendarBlock, Goal, User, now_utc
+from app.models import CalendarBlock, Goal, User, UserProfile, now_utc
 
 router = APIRouter()
 
 SCHEDULE_START_HOUR = 7
 SCHEDULE_END_HOUR = 22
+PLANNER_DAYS = range(0, 6)
+DAILY_MAX_HOURS = 8
+SUNDAY_MAX_HOURS = 3
+MAX_BLOCK_HOURS = 3
+FULLNESS_WARNING_RATIO = 0.7
 
 
 class CalendarBlockCreate(BaseModel):
@@ -67,6 +72,7 @@ class WeekResponse(BaseModel):
 
 class SuggestResponse(BaseModel):
     blocks: list[CalendarBlockResponse]
+    warnings: list[str] = Field(default_factory=list)
 
 
 async def get_owned_block(db: AsyncSession, user: User, block_id: str) -> CalendarBlock:
@@ -101,8 +107,58 @@ def serialize_block(block: CalendarBlock) -> CalendarBlockResponse:
 
 
 def validate_update_range(start_hour: int, end_hour: int) -> None:
-    if start_hour < SCHEDULE_START_HOUR or end_hour > SCHEDULE_END_HOUR or end_hour <= start_hour:
+    duration = end_hour - start_hour
+    if start_hour < SCHEDULE_START_HOUR or end_hour > SCHEDULE_END_HOUR or duration < 1 or duration > MAX_BLOCK_HOURS:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid block time range")
+
+
+def block_duration(block: CalendarBlock) -> int:
+    return max(0, block.end_hour - block.start_hour)
+
+
+def day_capacity(day_of_week: int) -> int:
+    return SUNDAY_MAX_HOURS if day_of_week == 6 else DAILY_MAX_HOURS
+
+
+def overlaps(start_hour: int, end_hour: int, block: CalendarBlock) -> bool:
+    return start_hour < block.end_hour and end_hour > block.start_hour
+
+
+async def validate_block_slot(
+    db: AsyncSession,
+    user: User,
+    day_of_week: int,
+    start_hour: int,
+    end_hour: int,
+    exclude_block_id: str | None = None,
+) -> None:
+    validate_update_range(start_hour, end_hour)
+    result = await db.scalars(select(CalendarBlock).where(CalendarBlock.user_id == user.id, CalendarBlock.day_of_week == day_of_week))
+    blocks = [block for block in result if block.id != exclude_block_id]
+    if any(overlaps(start_hour, end_hour, block) for block in blocks):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Calendar blocks cannot overlap.")
+
+    scheduled_hours = sum(block_duration(block) for block in blocks) + (end_hour - start_hour)
+    if scheduled_hours > day_capacity(day_of_week):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This day is at capacity. Add buffer time or choose another day.")
+
+
+def day_warning_messages(blocks: list[CalendarBlock]) -> list[str]:
+    warnings: list[str] = []
+    day_labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    for day_index, label in enumerate(day_labels):
+        scheduled = sum(block_duration(block) for block in blocks if block.day_of_week == day_index)
+        if scheduled > day_capacity(day_index) * FULLNESS_WARNING_RATIO:
+            warnings.append(f"{label} is over 70% full. Add buffer time.")
+    return warnings
+
+
+def mission_score(goal: Goal, mission_text: str) -> int:
+    words = {word.strip(".,:;!?()[]{}").lower() for word in mission_text.split() if len(word.strip(".,:;!?()[]{}")) >= 4}
+    if not words:
+        return 0
+    title = goal.title.lower()
+    return sum(1 for word in words if word in title)
 
 
 @router.get("/week", response_model=WeekResponse)
@@ -125,6 +181,7 @@ async def create_block(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CalendarBlockResponse:
     await assert_owned_goal(db, user, payload.goal_id)
+    await validate_block_slot(db, user, payload.day_of_week, payload.start_hour, payload.end_hour)
     block = CalendarBlock(
         user_id=user.id,
         goal_id=payload.goal_id,
@@ -170,7 +227,7 @@ async def update_block(
     if payload.alignment_status is not None:
         block.alignment_status = payload.alignment_status.strip() or "unknown"
 
-    validate_update_range(block.start_hour, block.end_hour)
+    await validate_block_slot(db, user, block.day_of_week, block.start_hour, block.end_hour, exclude_block_id=block.id)
     db.add(block)
     await db.commit()
     await db.refresh(block)
@@ -202,67 +259,101 @@ async def delete_block(
     await db.commit()
 
 
+@router.delete("/week/generated", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
+async def clear_generated_week(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    await db.execute(delete(CalendarBlock).where(CalendarBlock.user_id == user.id, CalendarBlock.source == "oracle_suggested"))
+    await db.commit()
+
+
 @router.post("/suggest", response_model=SuggestResponse)
 async def suggest_schedule(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SuggestResponse:
+    await db.execute(delete(CalendarBlock).where(CalendarBlock.user_id == user.id, CalendarBlock.source == "oracle_suggested"))
+    await db.flush()
+
+    profile = await db.scalar(select(UserProfile).where(UserProfile.user_id == user.id))
+    mission_text = " ".join(
+        value
+        for value in [
+            profile.life_mission if profile else "",
+            profile.vision_3_5_year if profile else "",
+            profile.one_year_goal if profile else "",
+        ]
+        if value
+    )
     goal_result = await db.scalars(
         select(Goal)
         .where(
             Goal.user_id == user.id,
-            Goal.horizon.in_(["weekly", "daily_part_1", "daily_part_2"]),
+            Goal.horizon.in_(["daily_part_1", "daily_part_2"]),
             Goal.is_complete.is_(False),
         )
-        .order_by(Goal.priority.desc(), Goal.created_at.asc())
-        .limit(10)
+        .order_by(Goal.created_at.asc())
+        .limit(50)
     )
-    goals = list(goal_result)
+    goals = sorted(list(goal_result), key=lambda goal: (-goal.priority, -mission_score(goal, mission_text), goal.created_at))[:24]
     if not goals:
-        return SuggestResponse(blocks=[])
+        return SuggestResponse(blocks=[], warnings=["Add daily priority or bonus tasks from Goals before generating a week."])
 
     block_result = await db.scalars(select(CalendarBlock).where(CalendarBlock.user_id == user.id))
-    occupied = {
-        (block.day_of_week, hour)
-        for block in block_result
-        for hour in range(block.start_hour, block.end_hour)
-    }
+    fixed_blocks = list(block_result)
+    day_hours = {day_index: 0 for day_index in range(7)}
+    occupied: set[tuple[int, int]] = set()
+    for block in fixed_blocks:
+        day_hours[block.day_of_week] = day_hours.get(block.day_of_week, 0) + block_duration(block)
+        for hour in range(block.start_hour, block.end_hour):
+            occupied.add((block.day_of_week, hour))
 
     created: list[CalendarBlock] = []
-    day = 0
-    hour = SCHEDULE_START_HOUR
+    unplaced: list[str] = []
     for goal in goals:
+        duration = min(MAX_BLOCK_HOURS, max(1, min(goal.target_count, 2 if goal.priority > 0 else 1)))
         placed = False
-        for _ in range(7 * (SCHEDULE_END_HOUR - SCHEDULE_START_HOUR)):
-            slot = (day, hour)
-            if slot not in occupied:
+        candidate_days = list(PLANNER_DAYS)
+        if goal.priority <= 0:
+            candidate_days = sorted(candidate_days, key=lambda day_index: day_hours[day_index])
+
+        for day in candidate_days:
+            if day_hours[day] + duration > day_capacity(day):
+                continue
+            for hour in range(SCHEDULE_START_HOUR, SCHEDULE_END_HOUR - duration + 1):
+                slots = [(day, slot_hour) for slot_hour in range(hour, hour + duration)]
+                if any(slot in occupied for slot in slots):
+                    continue
                 block = CalendarBlock(
                     user_id=user.id,
                     goal_id=goal.id,
                     title=goal.title,
                     day_of_week=day,
                     start_hour=hour,
-                    end_hour=hour + 1,
+                    end_hour=hour + duration,
                     source="oracle_suggested",
-                    alignment_status="aligned" if goal.priority > 0 else "unknown",
+                    alignment_status="priority" if goal.priority > 0 else "bonus",
                 )
                 db.add(block)
                 created.append(block)
-                occupied.add(slot)
+                for slot in slots:
+                    occupied.add(slot)
+                day_hours[day] += duration
                 placed = True
-                day = (day + 1) % 7
+                break
+            if placed:
                 break
 
-            hour += 1
-            if hour >= SCHEDULE_END_HOUR:
-                hour = SCHEDULE_START_HOUR
-                day = (day + 1) % 7
-
         if not placed:
-            break
+            unplaced.append(goal.title)
 
     await db.commit()
     for block in created:
         await db.refresh(block)
 
-    return SuggestResponse(blocks=[serialize_block(block) for block in created])
+    warnings = day_warning_messages([*fixed_blocks, *created])
+    if unplaced:
+        warnings.append(f"{len(unplaced)} task(s) could not fit without overlap or exceeding the daily cap.")
+
+    return SuggestResponse(blocks=[serialize_block(block) for block in created], warnings=warnings)

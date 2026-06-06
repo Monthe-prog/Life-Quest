@@ -51,6 +51,7 @@ import {
   completeCalendarBlock,
   createCalendarBlock,
   createQuest,
+  clearGeneratedCalendarWeek,
   deleteWeeklyReview,
   createGoal,
   deleteCalendarBlock,
@@ -1431,14 +1432,15 @@ function CalendarView({ accessToken }: { accessToken: string }) {
   const [dragPayload, setDragPayload] = useState<string | null>(null);
   const [editBlockId, setEditBlockId] = useState<string | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
-  const [alignmentStatus, setAlignmentStatus] = useState("unknown");
+  const [alignmentStatus, setAlignmentStatus] = useState("fixed");
+  const [scheduleWarnings, setScheduleWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function refreshBlocks() {
     const [calendarResponse, goalResponse] = await Promise.all([getCalendarWeek(accessToken), listGoals(accessToken)]);
     setBlocks(calendarResponse.blocks);
-    setGoals(goalResponse.goals.filter((goal) => !goal.is_complete));
+    setGoals(goalResponse.goals.filter((goal) => !goal.is_complete && (goal.horizon === "daily_part_1" || goal.horizon === "daily_part_2")));
   }
 
   useEffect(() => {
@@ -1449,7 +1451,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     setTitle("");
     setEditBlockId(null);
     setIsRecurring(false);
-    setAlignmentStatus("unknown");
+    setAlignmentStatus("fixed");
     setSelectedGoalId("");
   }
 
@@ -1477,7 +1479,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
         title: title.trim(),
         day_of_week: day,
         start_hour: startHour,
-        end_hour: Math.max(endHour, startHour + 1),
+        end_hour: Math.min(Math.max(endHour, startHour + 1), startHour + 3, 22),
         is_recurring: isRecurring,
         recurrence_pattern: isRecurring ? "weekly" : null,
         alignment_status: alignmentStatus,
@@ -1501,10 +1503,25 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     setBusy(true);
     setError(null);
     try {
-      await suggestCalendar(accessToken);
+      const response = await suggestCalendar(accessToken);
+      setScheduleWarnings(response.warnings ?? []);
       await refreshBlocks();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Schedule suggestion failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clearGeneratedWeek() {
+    setBusy(true);
+    setError(null);
+    try {
+      await clearGeneratedCalendarWeek(accessToken);
+      setScheduleWarnings([]);
+      await refreshBlocks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Generated week clear failed");
     } finally {
       setBusy(false);
     }
@@ -1537,23 +1554,26 @@ function CalendarView({ accessToken }: { accessToken: string }) {
   }
 
   function blocksFor(dayIndex: number, hour: number) {
-    return blocks.filter((block) => block.day_of_week === dayIndex && block.start_hour <= hour && block.end_hour > hour);
+    return blocks.filter((block) => block.day_of_week === dayIndex && block.start_hour === hour);
   }
 
   const goalById = useMemo(() => new Map(goals.map((goal) => [goal.id, goal])), [goals]);
+  const priorityGoals = useMemo(() => goals.filter((goal) => goal.priority > 0), [goals]);
+  const bonusGoals = useMemo(() => goals.filter((goal) => goal.priority <= 0), [goals]);
   const daySummaries = useMemo(
     () =>
       weekDays.map((_, dayIndex) => {
         const scheduled = blocks
           .filter((block) => block.day_of_week === dayIndex)
           .reduce((total, block) => total + Math.max(0, block.end_hour - block.start_hour), 0);
-        const bufferPercent = Math.max(0, Math.round(((15 - scheduled) / 15) * 100));
-        return { scheduled, bufferPercent, warning: bufferPercent < 20 };
+        const capacity = dayIndex === 6 ? 3 : 8;
+        const bufferPercent = Math.max(0, Math.round(((capacity - scheduled) / capacity) * 100));
+        return { scheduled, capacity, bufferPercent, warning: scheduled > capacity * 0.7 };
       }),
     [blocks]
   );
-  const alignedCount = blocks.filter((block) => block.alignment_status === "aligned").length;
-  const misalignedCount = blocks.filter((block) => block.alignment_status === "misaligned").length;
+  const priorityBlockCount = blocks.filter((block) => block.alignment_status === "priority" || block.alignment_status === "aligned").length;
+  const bonusBlockCount = blocks.filter((block) => block.alignment_status === "bonus").length;
   const isSunday = new Date().getDay() === 0;
 
   async function placeDrag(dayIndex: number, hour: number) {
@@ -1573,7 +1593,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
             start_hour: hour,
             end_hour: hour + 1,
             goal_id: goal.id,
-            alignment_status: goal.priority > 0 ? "aligned" : "unknown"
+            alignment_status: goal.priority > 0 ? "priority" : "bonus"
           });
         }
       } else if (dragPayload.startsWith("block:")) {
@@ -1602,8 +1622,11 @@ function CalendarView({ accessToken }: { accessToken: string }) {
     if (block.alignment_status === "misaligned") {
       return "border-red-400/70 bg-red-950/30 text-red-200";
     }
-    if (linkedGoal?.priority || block.alignment_status === "aligned" || block.source === "oracle_suggested") {
-      return "border-operator-cyan bg-operator-cyan/10 text-operator-cyan";
+    if (linkedGoal?.priority || block.alignment_status === "priority" || block.alignment_status === "aligned") {
+      return "border-operator-cyan bg-operator-cyan/15 text-operator-cyan shadow-[0_0_18px_rgba(109,247,210,0.22)]";
+    }
+    if (block.alignment_status === "bonus" || block.source === "oracle_suggested") {
+      return "border-white/15 bg-white/5 text-white/55";
     }
     return "border-white/20 bg-white/5 text-white/60";
   }
@@ -1613,22 +1636,43 @@ function CalendarView({ accessToken }: { accessToken: string }) {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="operator-glow text-3xl uppercase">Week Planner</h2>
-          <p className="mt-2 text-xs uppercase tracking-[0.22em] text-white/45">07:00-22:00 command grid</p>
+          <p className="mt-2 text-xs uppercase tracking-[0.22em] text-white/45">
+            {priorityGoals.length} priority / {bonusGoals.length} bonus daily tasks
+          </p>
         </div>
-        <button
-          className="flex items-center gap-2 border border-operator-cyan bg-operator-cyan/10 px-4 py-3 text-xs uppercase tracking-[0.2em] text-operator-cyan disabled:opacity-40"
-          disabled={busy}
-          onClick={suggest}
-        >
-          <Sparkles size={16} />
-          Suggest Schedule
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="flex items-center gap-2 border border-red-300/60 bg-red-950/20 px-3 py-3 text-xs uppercase tracking-[0.16em] text-red-200 disabled:opacity-40"
+            disabled={busy}
+            onClick={clearGeneratedWeek}
+            title="Clear generated week"
+          >
+            <Trash2 size={16} />
+          </button>
+          <button
+            className="flex items-center gap-2 border border-operator-cyan bg-operator-cyan/10 px-4 py-3 text-xs uppercase tracking-[0.2em] text-operator-cyan disabled:opacity-40"
+            disabled={busy}
+            onClick={suggest}
+          >
+            <Sparkles size={16} />
+            Suggest Schedule
+          </button>
+        </div>
       </div>
 
       {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
+      {scheduleWarnings.length > 0 && (
+        <div className="space-y-2">
+          {scheduleWarnings.map((warning) => (
+            <p className="border border-operator-purple/50 bg-operator-purple/10 px-3 py-2 text-sm text-operator-purple" key={warning}>
+              {warning}
+            </p>
+          ))}
+        </div>
+      )}
       {isSunday && (
         <p className="operator-cyan-panel p-3 text-sm text-operator-cyan">
-          Sunday planning mode is active. Load your weekly goals, place priority blocks, then lock the directive in Weekly Review.
+          Sunday stays light. Oracle schedules generated work across Monday-Saturday first.
         </p>
       )}
 
@@ -1639,36 +1683,44 @@ function CalendarView({ accessToken }: { accessToken: string }) {
             <p className={daySummaries[index].warning ? "text-lg text-red-300" : "text-lg text-operator-cyan"}>
               {daySummaries[index].bufferPercent}% buffer
             </p>
+            <p className="mt-1 text-[10px] uppercase text-white/35">
+              {daySummaries[index].scheduled}/{daySummaries[index].capacity}h
+            </p>
           </article>
         ))}
       </section>
 
       <section className="operator-cyan-panel p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Goal Alignment</h3>
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Daily Task Pull</h3>
           <p className="text-xs uppercase text-white/45">
-            {alignedCount} aligned / {misalignedCount} misaligned
+            {priorityBlockCount} priority blocks / {bonusBlockCount} bonus blocks
           </p>
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {goals.slice(0, 12).map((goal) => (
-            <button
-              className={`min-w-52 border px-3 py-2 text-left text-xs uppercase ${
-                goal.priority > 0 ? "border-operator-cyan bg-operator-cyan/10 text-operator-cyan" : "border-white/15 bg-black/30 text-white/55"
-              }`}
-              draggable
-              key={goal.id}
-              onDragStart={() => setDragPayload(`goal:${goal.id}`)}
-              onClick={() => {
-                setTitle(goal.title);
-                setSelectedGoalId(goal.id);
-                setAlignmentStatus(goal.priority > 0 ? "aligned" : "unknown");
-              }}
-            >
-              {goal.title}
-              <span className="mt-1 block text-[10px] text-white/40">{goal.horizon.replaceAll("_", " ")} / priority {goal.priority}</span>
-            </button>
-          ))}
+          {[...priorityGoals, ...bonusGoals].slice(0, 16).map((goal) => {
+            const priority = goal.priority > 0;
+            return (
+              <button
+                className={`min-w-52 border px-3 py-2 text-left text-xs uppercase ${
+                  priority ? "border-operator-cyan bg-operator-cyan/10 text-operator-cyan" : "border-white/15 bg-black/30 text-white/55"
+                }`}
+                draggable
+                key={goal.id}
+                onDragStart={() => setDragPayload(`goal:${goal.id}`)}
+                onClick={() => {
+                  setTitle(goal.title);
+                  setSelectedGoalId(goal.id);
+                  setAlignmentStatus(priority ? "priority" : "bonus");
+                }}
+              >
+                {goal.title}
+                <span className="mt-1 block text-[10px] text-white/40">
+                  {priority ? "priority" : "bonus"} / {goal.horizon.replaceAll("_", " ")}
+                </span>
+              </button>
+            );
+          })}
           {goals.length === 0 && <p className="text-sm text-white/45">No active goals available for scheduling.</p>}
         </div>
       </section>
@@ -1712,7 +1764,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
             onChange={(event) => {
               const nextStart = Number(event.target.value);
               setStartHour(nextStart);
-              setEndHour(Math.max(endHour, nextStart + 1));
+              setEndHour(Math.min(Math.max(endHour, nextStart + 1), nextStart + 3, 22));
             }}
           >
             {scheduleHours.slice(0, -1).map((hour) => (
@@ -1727,9 +1779,10 @@ function CalendarView({ accessToken }: { accessToken: string }) {
             onChange={(event) => setEndHour(Number(event.target.value))}
           >
             {scheduleHours
-              .filter((hour) => hour > startHour)
+              .filter((hour) => hour > startHour && hour <= startHour + 3)
               .concat(22)
               .filter((hour, index, values) => values.indexOf(hour) === index)
+              .filter((hour) => hour <= startHour + 3)
               .map((hour) => (
                 <option className="bg-black" key={hour} value={hour}>
                   {formatHour(hour)}
@@ -1741,7 +1794,7 @@ function CalendarView({ accessToken }: { accessToken: string }) {
             value={alignmentStatus}
             onChange={(event) => setAlignmentStatus(event.target.value)}
           >
-            {["unknown", "aligned", "misaligned"].map((value) => (
+            {["fixed", "priority", "bonus", "unknown", "misaligned"].map((value) => (
               <option className="bg-black" key={value} value={value}>
                 {value.toUpperCase()}
               </option>
