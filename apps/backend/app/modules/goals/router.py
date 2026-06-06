@@ -166,9 +166,6 @@ async def award_completion_reward(db: AsyncSession, user: User, goal: Goal) -> B
         character = CharacterProfile(user_id=user.id)
 
     before_level = character.level
-    character.xp += xp_awarded
-    character.level = max(1, (character.xp // 1000) + 1)
-
     stat = await db.scalar(select(CharacterStat).where(CharacterStat.user_id == user.id, CharacterStat.stat_key == stat_key))
     stat_level = stat.level if stat is not None else 0
     unlocked_skills = await db.scalars(
@@ -184,6 +181,9 @@ async def award_completion_reward(db: AsyncSession, user: User, goal: Goal) -> B
 
     streak_multiplier = 1.1 if goal.horizon in {"daily_part_1", "daily_part_2"} and goal.priority > 0 else 1.0
     xp_awarded = max(0, int(round(base_xp * skill_multiplier * streak_multiplier)))
+
+    character.xp += xp_awarded
+    character.level = max(1, (character.xp // 1000) + 1)
 
     if stat is not None:
         stat.xp += xp_awarded
@@ -292,10 +292,15 @@ async def update_goal(
         goal.title = payload.title.strip()
     if payload.target_count is not None:
         goal.target_count = payload.target_count
-        goal.completed_count = min(goal.completed_count, goal.target_count)
+        goal.completed_count = goal.target_count if goal.is_complete else min(goal.completed_count, goal.target_count)
     if payload.priority is not None:
         goal.priority = payload.priority
     if payload.is_complete is not None:
+        if goal.is_complete and not payload.is_complete:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Completed goals are locked and cannot be unchecked.",
+            )
         goal.is_complete = payload.is_complete
         if payload.is_complete:
             goal.completed_count = goal.target_count
@@ -317,6 +322,11 @@ async def change_progress(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> GoalProgressResponse:
     goal = await get_owned_goal(db, user, goal_id)
+    if goal.is_complete and payload.delta < 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed goals are locked and cannot be unchecked.",
+        )
     goal.completed_count = max(0, min(goal.target_count, goal.completed_count + payload.delta))
     goal.is_complete = goal.completed_count >= goal.target_count
     battle_event = await award_completion_reward(db, user, goal)

@@ -6,10 +6,10 @@ const config: Config = {
     extend: {
       colors: {
         operator: {
-          void: "#050507",
-          surface: "#0D0D11",
-          purple: "#D000FF",
-          cyan: "#00F0FF"
+          void: "#07080A",
+          surface: "#11100D",
+          purple: "#B772FF",
+          cyan: "#6DF7D2"
         }
       },
       fontFamily: {
