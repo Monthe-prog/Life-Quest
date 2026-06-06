@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models import Achievement, ActivityEvent, BossBattle, CharacterProfile, CharacterStat, Goal, User
+from app.models import Achievement, ActivityEvent, BossBattle, CharacterProfile, CharacterStat, Goal, SkillUnlock, User
 from app.modules.oracle.service import oracle_service
 
 router = APIRouter()
@@ -41,6 +41,14 @@ XP_BY_HORIZON = {
     "monthly": 350,
     "yearly": 750,
     "five_year": 1200,
+}
+
+SKILL_XP_MULTIPLIER_BY_TIER = {
+    2: 1.05,
+    5: 1.08,
+    8: 1.12,
+    12: 1.16,
+    18: 1.22,
 }
 
 STAT_KEYWORDS = {
@@ -151,8 +159,8 @@ async def award_completion_reward(db: AsyncSession, user: User, goal: Goal) -> B
     if goal.rewarded_at is not None or not goal.is_complete:
         return None
 
-    xp_awarded = XP_BY_HORIZON.get(goal.horizon, 50) + (goal.priority * 25)
     stat_key = infer_stat_key(goal.title)
+    base_xp = XP_BY_HORIZON.get(goal.horizon, 50) + (goal.priority * 25)
     character = await db.scalar(select(CharacterProfile).where(CharacterProfile.user_id == user.id))
     if character is None:
         character = CharacterProfile(user_id=user.id)
@@ -162,6 +170,21 @@ async def award_completion_reward(db: AsyncSession, user: User, goal: Goal) -> B
     character.level = max(1, (character.xp // 1000) + 1)
 
     stat = await db.scalar(select(CharacterStat).where(CharacterStat.user_id == user.id, CharacterStat.stat_key == stat_key))
+    stat_level = stat.level if stat is not None else 0
+    unlocked_skills = await db.scalars(
+        select(SkillUnlock).where(
+            SkillUnlock.user_id == user.id,
+            SkillUnlock.stat_key == stat_key,
+            SkillUnlock.required_level <= stat_level,
+        )
+    )
+    skill_multiplier = 1.0
+    for skill in unlocked_skills:
+        skill_multiplier += SKILL_XP_MULTIPLIER_BY_TIER.get(skill.required_level, 1.03) - 1.0
+
+    streak_multiplier = 1.1 if goal.horizon in {"daily_part_1", "daily_part_2"} and goal.priority > 0 else 1.0
+    xp_awarded = max(0, int(round(base_xp * skill_multiplier * streak_multiplier)))
+
     if stat is not None:
         stat.xp += xp_awarded
         stat.level = stat.xp // 500

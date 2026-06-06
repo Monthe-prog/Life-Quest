@@ -790,13 +790,22 @@ export function listQuests(accessToken: string) {
   });
 }
 
-export function createQuest(accessToken: string, payload: { title: string; description?: string; steps: string[]; reward_xp?: number }) {
+export function createQuest(accessToken: string, payload: { title: string; description?: string; steps: string[]; reward_xp?: number; skill_key?: string | null; expires_at?: string | null }) {
   return apiRequest<Quest>("/api/quests", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`
     },
     body: JSON.stringify(payload)
+  });
+}
+
+export function abandonQuest(accessToken: string, questId: string) {
+  return apiRequest<Quest>(`/api/quests/${questId}/abandon`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
   });
 }
 
@@ -811,6 +820,36 @@ export function completeQuestStep(accessToken: string, questId: string, stepId: 
 
 export function claimQuest(accessToken: string, questId: string) {
   return apiRequest<Quest>(`/api/quests/${questId}/claim`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function listBosses(accessToken: string) {
+  return apiRequest<BossBattle[]>("/api/quests/bosses", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
+export function createBoss(
+  accessToken: string,
+  payload: { title: string; goal_id?: string | null; required_count?: number; reward_xp?: number }
+) {
+  return apiRequest<BossBattle>("/api/quests/bosses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function claimBoss(accessToken: string, bossId: string) {
+  return apiRequest<BossBattle>(`/api/quests/bosses/${bossId}/claim`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${accessToken}`

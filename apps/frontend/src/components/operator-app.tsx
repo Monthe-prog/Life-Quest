@@ -42,9 +42,15 @@ import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } fro
 import {
   changeGoalProgress,
   acceptOracleBreakdown,
+  abandonQuest,
+  claimBoss,
+  claimQuest,
   compareWeeklyReviews,
+  completeQuestStep,
+  createBoss,
   completeCalendarBlock,
   createCalendarBlock,
+  createQuest,
   deleteWeeklyReview,
   createGoal,
   deleteCalendarBlock,
@@ -66,7 +72,9 @@ import {
   interrogateOracle,
   listWeeklyReviewExports,
   listWeeklyReviews,
+  listBosses,
   listGoals,
+  listQuests,
   login,
   logout,
   oracleBreakdown,
@@ -82,9 +90,12 @@ import {
   toggleGuildReaction,
   updateCalendarBlock,
   type BattleEvent,
+  type BossBattle,
   type CalendarBlock,
+  type CharacterAchievement,
   type CharacterClass,
   type CharacterProfile,
+  type CharacterSkill,
   type CharacterStat,
   type FeedEvent,
   type Goal,
@@ -100,6 +111,7 @@ import {
   type OracleStatus,
   type OnboardingState,
   type ModerationEvent,
+  type Quest,
   type WeeklyReview,
   type WeeklyReviewCompare,
   type WeeklyReviewExport,
@@ -158,6 +170,46 @@ const statIcons: Record<string, typeof Dumbbell> = {
   intellect: BookOpen,
   wisdom: Brain,
   charisma: Users
+};
+
+const statCategories: Record<string, string> = {
+  strength: "Health & Fitness",
+  wealth: "Career & Finance",
+  charisma: "Relationships",
+  intellect: "Learning & Skills",
+  wisdom: "Mindset & Mental Health"
+};
+
+const xpTierGuide = [
+  ["Daily Priority Task", "High", "Base 50 XP + priority scaling"],
+  ["Daily Bonus Task", "Medium", "Base 50 XP"],
+  ["Weekly Goal", "Large", "Base 150 XP"],
+  ["Monthly Boss Goal", "Massive", "Base 350 XP + boss reward"],
+  ["Daily Streak", "Multiplier", "Priority dailies receive a streak-style bonus"],
+  ["Miss / Break Streak", "-XP", "Engine supports de-leveling through negative adjustments"]
+];
+
+const skillDetails: Record<string, { effect: string; goalImpact: string }> = {
+  deep_focus_mode: {
+    effect: "Pomodoro-style focus identity for serious learning blocks.",
+    goalImpact: "+5% Intellect XP on matching goal completions."
+  },
+  speed_reader: {
+    effect: "Reading momentum badge for study and research missions.",
+    goalImpact: "+8% Intellect XP on matching goal completions."
+  },
+  pattern_seeker: {
+    effect: "Recognizes consistent learning loops and deliberate practice.",
+    goalImpact: "+12% Intellect XP on matching goal completions."
+  },
+  polymath: {
+    effect: "Marks broad skill acquisition across multiple learning tracks.",
+    goalImpact: "+16% Intellect XP on matching goal completions."
+  },
+  oracle_pact: {
+    effect: "Signals mastery of Oracle-assisted breakdown and execution.",
+    goalImpact: "+22% Intellect XP on matching goal completions."
+  }
 };
 
 const OPERATOR_LOGO_SRC = "/operator-logo.png";
@@ -2215,7 +2267,16 @@ function CharacterView({
   playSound: (kind?: "select" | "confirm" | "error") => void;
 }) {
   const [profile, setProfile] = useState<CharacterProfile | null>(null);
+  const [quests, setQuests] = useState<Quest[]>([]);
+  const [bosses, setBosses] = useState<BossBattle[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [activeSkillStat, setActiveSkillStat] = useState("intellect");
+  const [selectedSkill, setSelectedSkill] = useState<CharacterSkill | null>(null);
+  const [selectedAchievement, setSelectedAchievement] = useState<CharacterAchievement | null>(null);
+  const [questTitle, setQuestTitle] = useState("");
+  const [bossGoalId, setBossGoalId] = useState("");
+  const [bossTitle, setBossTitle] = useState("");
+  const [bossVictory, setBossVictory] = useState<BossBattle | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2227,8 +2288,17 @@ function CharacterView({
     }
   }
 
+  async function refreshGamification() {
+    const [questRows, bossRows, goalRows] = await Promise.all([listQuests(accessToken), listBosses(accessToken), listGoals(accessToken)]);
+    setQuests(questRows);
+    setBosses(bossRows);
+    setGoals(goalRows.goals);
+  }
+
   useEffect(() => {
-    refreshProfile().catch((err) => setError(err instanceof Error ? err.message : "Unable to load character"));
+    Promise.all([refreshProfile(), refreshGamification()]).catch((err) =>
+      setError(err instanceof Error ? err.message : "Unable to load character systems")
+    );
   }, [accessToken]);
 
   async function updateCustomizer(payload: Parameters<typeof updateCharacterCustomizer>[1]) {
@@ -2241,6 +2311,86 @@ function CharacterView({
     } catch (err) {
       playSound("error");
       setError(err instanceof Error ? err.message : "Customizer update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshQuest() {
+    setBusy(true);
+    setError(null);
+    try {
+      const sourceGoals = goals.filter((goal) => !goal.is_complete).slice(0, 3);
+      const created = await createQuest(accessToken, {
+        title: questTitle.trim() || "Oracle Challenge",
+        description: "AI-style multi-step challenge generated from current active goals.",
+        steps: sourceGoals.length ? sourceGoals.map((goal) => goal.title) : ["Confirm one priority task", "Schedule the next execution block", "Report progress"],
+        reward_xp: 125,
+        skill_key: activeSkills[0]?.skill_key ?? null
+      });
+      playSound("confirm");
+      setQuestTitle("");
+      setQuests((current) => [created, ...current]);
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Quest refresh failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function mutateQuest(action: () => Promise<Quest>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await action();
+      playSound("confirm");
+      setQuests((current) => current.map((quest) => (quest.id === updated.id ? updated : quest)));
+      await refreshProfile();
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Quest action failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function declareBoss() {
+    const linkedGoal = goals.find((goal) => goal.id === bossGoalId);
+    const title = bossTitle.trim() || linkedGoal?.title || "Monthly Boss";
+    setBusy(true);
+    setError(null);
+    try {
+      const boss = await createBoss(accessToken, {
+        title,
+        goal_id: bossGoalId || null,
+        required_count: linkedGoal?.target_count || 1,
+        reward_xp: 500
+      });
+      playSound("confirm");
+      setBossTitle("");
+      setBossGoalId("");
+      setBosses((current) => [boss, ...current]);
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Boss declaration failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function claimBossReward(boss: BossBattle) {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await claimBoss(accessToken, boss.id);
+      playSound("confirm");
+      setBossVictory(updated);
+      setBosses((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await refreshProfile();
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Boss reward claim failed");
     } finally {
       setBusy(false);
     }
@@ -2260,6 +2410,7 @@ function CharacterView({
     level: stat.effective_level
   }));
   const activeSkills = profile.skills.filter((skill) => skill.stat_key === activeSkillStat);
+  const monthlyGoals = goals.filter((goal) => goal.horizon === "monthly");
 
   return (
     <section className="space-y-5">
@@ -2272,6 +2423,24 @@ function CharacterView({
       </div>
 
       {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
+
+      <section className="operator-cyan-panel p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">XP Engine</h3>
+          <span className="text-xs uppercase text-white/45">De-level stakes active</span>
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {xpTierGuide.map(([action, value, detail]) => (
+            <article className="border border-white/10 bg-black/30 p-3" key={action}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm uppercase text-white">{action}</p>
+                <span className="text-xs uppercase text-operator-cyan">{value}</span>
+              </div>
+              <p className="mt-2 text-xs text-white/45">{detail}</p>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <BattleSimulator battleEvent={battleEvent} callsign={profile.callsign} />
 
@@ -2369,23 +2538,25 @@ function CharacterView({
         <div className="mt-4 space-y-3">
           {activeSkills.length === 0 && <p className="py-4 text-sm text-white/45">No skill nodes assigned yet.</p>}
           {activeSkills.map((skill) => (
-            <div
+            <button
               className={`flex items-center gap-3 border p-3 ${
                 skill.unlocked ? "border-operator-cyan/70 text-operator-cyan" : "border-white/10 text-white/35"
               }`}
               key={skill.skill_key}
+              onClick={() => setSelectedSkill(skill)}
             >
               <div className="flex h-10 w-10 items-center justify-center border border-current">
                 {skill.unlocked ? <Zap size={18} /> : <Lock size={18} />}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 text-left">
                 <p className="text-sm uppercase">{skill.label}</p>
+                <p className="mt-1 text-xs text-white/45">{skillDetails[skill.skill_key]?.goalImpact ?? "Motivational reward tier."}</p>
                 <div className="mt-2 h-1 bg-white/10">
                   <div className="h-full bg-current" style={{ width: skill.unlocked ? "100%" : "28%" }} />
                 </div>
               </div>
               <span className="text-xs uppercase">Lvl {skill.required_level}</span>
-            </div>
+            </button>
           ))}
         </div>
       </section>
@@ -2394,18 +2565,272 @@ function CharacterView({
         <h3 className="operator-glow text-2xl uppercase">Achievements</h3>
         <div className="mt-3 grid grid-cols-3 gap-3">
           {profile.achievements.map((achievement) => (
-            <article
+            <button
               className={`border p-4 text-center ${
                 achievement.unlocked ? "border-operator-cyan text-operator-cyan" : "border-white/10 text-white/30"
               }`}
               key={achievement.achievement_key}
+              onClick={() => setSelectedAchievement(achievement)}
             >
               <Trophy className="mx-auto" size={24} />
               <p className="mt-3 text-xs uppercase">{achievement.label}</p>
-            </article>
+            </button>
           ))}
         </div>
       </section>
+
+      <QuestHub
+        busy={busy}
+        onAbandon={(quest) => mutateQuest(() => abandonQuest(accessToken, quest.id))}
+        onClaim={(quest) => mutateQuest(() => claimQuest(accessToken, quest.id))}
+        onCompleteStep={(quest, stepId) => mutateQuest(() => completeQuestStep(accessToken, quest.id, stepId))}
+        onRefresh={refreshQuest}
+        questTitle={questTitle}
+        quests={quests}
+        setQuestTitle={setQuestTitle}
+      />
+
+      <BossBattlePanel
+        bossGoalId={bossGoalId}
+        bosses={bosses}
+        bossTitle={bossTitle}
+        busy={busy}
+        goals={monthlyGoals}
+        onClaim={claimBossReward}
+        onDeclare={declareBoss}
+        setBossGoalId={setBossGoalId}
+        setBossTitle={setBossTitle}
+        victory={bossVictory}
+      />
+
+      {selectedSkill && <SkillDetailModal skill={selectedSkill} stat={profile.stats.find((stat) => stat.stat_key === selectedSkill.stat_key)} onClose={() => setSelectedSkill(null)} />}
+      {selectedAchievement && <AchievementShareModal achievement={selectedAchievement} callsign={profile.callsign} onClose={() => setSelectedAchievement(null)} />}
+    </section>
+  );
+}
+
+function SkillDetailModal({
+  onClose,
+  skill,
+  stat
+}: {
+  onClose: () => void;
+  skill: CharacterSkill;
+  stat?: CharacterStat;
+}) {
+  const details = skillDetails[skill.skill_key] ?? {
+    effect: "Cosmetic and motivational reward for sustained stat growth.",
+    goalImpact: "Adds a small XP identity bonus when the matching stat grows."
+  };
+  return (
+    <GuildModal title="Skill Detail" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="border border-operator-cyan/60 bg-black/35 p-4">
+          <p className="text-xs uppercase tracking-[0.25em] text-operator-cyan">{skill.stat_key}</p>
+          <h4 className="operator-glow mt-2 text-2xl uppercase">{skill.label}</h4>
+          <p className="mt-3 text-sm leading-6 text-white/65">{details.effect}</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <StatTile label="Unlocks At" value={`Lvl ${skill.required_level}`} />
+          <StatTile label="Current Stat" value={`Lvl ${stat?.effective_level ?? 0}`} />
+        </div>
+        <p className="border border-white/10 bg-black/25 p-3 text-sm leading-6 text-white/65">{details.goalImpact}</p>
+        <p className="text-xs uppercase tracking-[0.18em] text-white/40">
+          Skills are cosmetic and motivational rewards. They are never paywalled.
+        </p>
+      </div>
+    </GuildModal>
+  );
+}
+
+function AchievementShareModal({
+  achievement,
+  callsign,
+  onClose
+}: {
+  achievement: CharacterAchievement;
+  callsign: string;
+  onClose: () => void;
+}) {
+  return (
+    <GuildModal title="Badge Card" onClose={onClose}>
+      <div className="achievement-card border border-operator-cyan bg-black p-5 text-center">
+        <Trophy className="mx-auto text-operator-cyan" size={42} />
+        <p className="mt-4 text-xs uppercase tracking-[0.3em] text-white/45">Life Quest Achievement</p>
+        <h4 className="operator-glow mt-3 text-3xl uppercase">{achievement.label}</h4>
+        <p className="mt-4 text-sm uppercase text-operator-cyan">{callsign}</p>
+        <p className="mt-3 text-xs text-white/45">{achievement.unlocked ? "Unlocked and ready to share." : "Locked badge preview."}</p>
+      </div>
+      <button className="mt-4 flex w-full items-center justify-center gap-2 border border-operator-cyan bg-operator-cyan/10 px-4 py-3 text-xs uppercase text-operator-cyan">
+        <Trophy size={16} />
+        Shareable Badge Card
+      </button>
+    </GuildModal>
+  );
+}
+
+function QuestHub({
+  busy,
+  onAbandon,
+  onClaim,
+  onCompleteStep,
+  onRefresh,
+  questTitle,
+  quests,
+  setQuestTitle
+}: {
+  busy: boolean;
+  onAbandon: (quest: Quest) => void;
+  onClaim: (quest: Quest) => void;
+  onCompleteStep: (quest: Quest, stepId: string) => void;
+  onRefresh: () => void;
+  questTitle: string;
+  quests: Quest[];
+  setQuestTitle: (value: string) => void;
+}) {
+  return (
+    <section className="operator-panel p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="operator-glow text-2xl uppercase">Quests</h3>
+          <p className="mt-1 text-xs uppercase text-white/45">Multi-step challenges tied to current goals</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+          <input
+            className="min-w-0 border border-white/15 bg-black/40 px-3 py-2 text-sm outline-none focus:border-operator-cyan"
+            placeholder="Quest title"
+            value={questTitle}
+            onChange={(event) => setQuestTitle(event.target.value)}
+          />
+          <button className="border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan disabled:opacity-40" disabled={busy} onClick={onRefresh}>
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div className="mt-4 space-y-3">
+        {quests.length === 0 && <p className="border border-white/10 bg-black/25 p-3 text-sm text-white/45">No active quests yet. Refresh to generate one from current goals.</p>}
+        {quests.map((quest) => {
+          const done = quest.steps.filter((step) => step.completed).length;
+          const total = quest.steps.length || 1;
+          const claimable = quest.status === "active" && !quest.claimed && done === quest.steps.length;
+          return (
+            <article className="border border-white/10 bg-black/30 p-4" key={quest.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm uppercase text-white">{quest.title}</p>
+                  <p className="mt-1 text-xs text-white/45">
+                    {quest.status} / {quest.claimed ? "claimed" : `${quest.reward_xp} XP`} {quest.expires_at ? `/ expires ${new Date(quest.expires_at).toLocaleDateString()}` : ""}
+                  </p>
+                </div>
+                <span className="text-xs uppercase text-operator-cyan">{done}/{quest.steps.length} steps</span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-white/55">{quest.description}</p>
+              <div className="mt-3 h-1 bg-white/10">
+                <div className="h-full bg-operator-cyan" style={{ width: `${Math.round((done / total) * 100)}%` }} />
+              </div>
+              <div className="mt-3 space-y-2">
+                {quest.steps.map((step) => (
+                  <button
+                    className={`flex w-full items-center gap-3 border px-3 py-2 text-left text-sm ${
+                      step.completed ? "border-operator-cyan/60 text-operator-cyan" : "border-white/10 text-white/60"
+                    }`}
+                    disabled={busy || step.completed || quest.status !== "active"}
+                    key={step.id}
+                    onClick={() => onCompleteStep(quest, step.id)}
+                  >
+                    <span className={`h-4 w-4 border ${step.completed ? "completion-burst is-complete border-operator-cyan bg-operator-cyan/20" : "border-white/30"}`} />
+                    {step.title}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 flex gap-2">
+                <button className="flex-1 border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan disabled:opacity-40" disabled={busy || !claimable} onClick={() => onClaim(quest)}>
+                  Claim Reward
+                </button>
+                <button className="border border-white/15 px-3 py-2 text-xs uppercase text-white/45 disabled:opacity-40" disabled={busy || quest.status !== "active"} onClick={() => onAbandon(quest)}>
+                  Abandon
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function BossBattlePanel({
+  bosses,
+  bossGoalId,
+  bossTitle,
+  busy,
+  goals,
+  onClaim,
+  onDeclare,
+  setBossGoalId,
+  setBossTitle,
+  victory
+}: {
+  bosses: BossBattle[];
+  bossGoalId: string;
+  bossTitle: string;
+  busy: boolean;
+  goals: Goal[];
+  onClaim: (boss: BossBattle) => void;
+  onDeclare: () => void;
+  setBossGoalId: (value: string) => void;
+  setBossTitle: (value: string) => void;
+  victory: BossBattle | null;
+}) {
+  return (
+    <section className="operator-cyan-panel p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm uppercase tracking-[0.3em] text-operator-cyan">Boss Battles</h3>
+          <p className="mt-1 text-xs uppercase text-white/45">Monthly goals become big fights with claimable rewards</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <input
+          className="min-w-0 border border-white/15 bg-black/40 px-3 py-3 text-sm outline-none"
+          placeholder="Boss name"
+          value={bossTitle}
+          onChange={(event) => setBossTitle(event.target.value)}
+        />
+        <select className="min-w-0 border border-white/15 bg-black/40 px-3 py-3 text-sm outline-none" value={bossGoalId} onChange={(event) => setBossGoalId(event.target.value)}>
+          <option className="bg-black" value="">No linked monthly goal</option>
+          {goals.map((goal) => (
+            <option className="bg-black" key={goal.id} value={goal.id}>{goal.title}</option>
+          ))}
+        </select>
+        <button className="border border-operator-cyan px-4 py-3 text-xs uppercase text-operator-cyan disabled:opacity-40" disabled={busy} onClick={onDeclare}>
+          Declare
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {bosses.length === 0 && <p className="border border-white/10 bg-black/25 p-3 text-sm text-white/45">No boss declared yet.</p>}
+        {bosses.map((boss) => (
+          <article className={`border bg-black/30 p-4 ${victory?.id === boss.id ? "boss-win-shake border-operator-cyan" : "border-white/10"}`} key={boss.id}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm uppercase text-white">{boss.title}</p>
+                <p className="mt-1 text-xs uppercase text-white/45">{boss.status} / {boss.reward_xp} XP reward</p>
+              </div>
+              <span className="text-lg text-operator-cyan">{boss.percent_complete}%</span>
+            </div>
+            <div className="mt-3 h-3 bg-white/10">
+              <div className="h-full bg-operator-purple" style={{ width: `${boss.percent_complete}%` }} />
+            </div>
+            <p className="mt-2 text-xs uppercase text-white/45">
+              {boss.progress_count}/{boss.required_count} linked completions
+            </p>
+            <button className="mt-3 border border-operator-cyan px-3 py-2 text-xs uppercase text-operator-cyan disabled:opacity-40" disabled={busy || boss.claimed || boss.percent_complete < 100} onClick={() => onClaim(boss)}>
+              Claim Victory
+            </button>
+            {victory?.id === boss.id && <div className="neon-boss-explosion mt-4 h-16 w-16" />}
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -2490,7 +2915,7 @@ function StatCard({ stat }: { stat: CharacterStat }) {
           <div>
             <p className="text-sm uppercase">{stat.label}</p>
             <p className="mt-1 text-xs text-white/45">
-              Base {stat.level} / Class +{stat.class_bonus}
+              {statCategories[stat.stat_key] ?? "Life Attribute"} / Base {stat.level} / Class +{stat.class_bonus}
             </p>
           </div>
         </div>
