@@ -24,10 +24,10 @@ infra/ansible/templates/life-quest.nginx.conf.j2
 `02-deploy-operator.yml`
 
 - Clones/updates the GitHub repository on the VPS.
-- Writes the app `.env`.
+- Creates the app `.env` only if it is missing, so existing VPS secrets such as `OPENAI_API_KEY` and `JWT_SECRET_KEY` are preserved.
 - Builds and starts the Docker Compose stack.
 - Runs database migrations.
-- Configures Nginx reverse proxy.
+- Configures Nginx reverse proxy for the app, API, WebSocket, Prometheus, and Grafana paths.
 - Prints running container status.
 
 ## Install Ansible

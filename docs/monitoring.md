@@ -31,7 +31,46 @@ git pull origin main
 docker compose up -d --build
 ```
 
-Open firewall ports if needed:
+The Docker Compose stack includes `prometheus`, `grafana`, `node-exporter`, and `cadvisor`.
+
+Prometheus and Grafana are also routed through Nginx on the main app port:
+
+```text
+http://158.220.90.106/prometheus/
+http://158.220.90.106/grafana/
+```
+
+If Prometheus or Grafana are already installed directly on the VPS, check for port conflicts before starting Compose:
+
+```bash
+sudo ss -ltnp | grep -E ':9090|:3001'
+docker compose ps
+```
+
+Either stop the existing host services or change `PROMETHEUS_PORT` / `GRAFANA_PORT` in `.env`.
+
+If the containers are running but the URLs do not open from your browser, verify each layer from the VPS:
+
+```bash
+cd /opt/life-quest
+docker compose ps prometheus grafana
+docker compose logs --tail=80 prometheus
+docker compose logs --tail=80 grafana
+curl -I http://127.0.0.1:9090/-/ready
+curl -I http://127.0.0.1:3001/login
+sudo ufw status numbered
+sudo ss -ltnp | grep -E ':9090|:3001'
+```
+
+Expected results:
+
+- Prometheus and Grafana containers are `Up`.
+- Prometheus returns `HTTP/1.1 200 OK` for `/-/ready`.
+- Grafana returns a login redirect or `200` for `/login`.
+- Nginx serves `http://158.220.90.106/prometheus/` and `http://158.220.90.106/grafana/` through the already-working app port `80`.
+- UFW allows `9090/tcp` and `3001/tcp` only if you also want direct raw-port access.
+
+Open firewall ports only if direct raw-port access is needed:
 
 ```bash
 ufw allow 9090/tcp
@@ -50,13 +89,13 @@ http://158.220.90.106
 Prometheus:
 
 ```text
-http://158.220.90.106:9090
+http://158.220.90.106/prometheus/
 ```
 
 Grafana:
 
 ```text
-http://158.220.90.106:3001
+http://158.220.90.106/grafana/
 ```
 
 Default Grafana login comes from `.env`:
@@ -79,19 +118,19 @@ curl http://127.0.0.1:8000/metrics | head
 Prometheus targets:
 
 ```text
-http://158.220.90.106:9090/targets
+http://158.220.90.106/prometheus/targets
 ```
 
 Prometheus alerts:
 
 ```text
-http://158.220.90.106:9090/alerts
+http://158.220.90.106/prometheus/alerts
 ```
 
 Grafana dashboard:
 
 ```text
-http://158.220.90.106:3001/d/operator-monitoring-overview/operator-monitoring-overview
+http://158.220.90.106/grafana/d/operator-monitoring-overview/operator-monitoring-overview
 ```
 
 ## Screenshot Checklist
