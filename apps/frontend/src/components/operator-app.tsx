@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   Award,
+  Bell,
   Bot,
   Brain,
   BookOpen,
@@ -23,6 +24,7 @@ import {
   Minus,
   Plus,
   Search,
+  Settings,
   Shield,
   ShieldPlus,
   Sparkles,
@@ -59,6 +61,7 @@ import {
   getLatestWeeklyReview,
   getMe,
   getOracleStatus,
+  getOnboardingState,
   joinGuild,
   interrogateOracle,
   listWeeklyReviewExports,
@@ -71,11 +74,13 @@ import {
   postGuildMessage,
   register,
   removeGuildMember,
+  saveOnboardingState,
   saveWeeklyReview,
   setCallsign,
   suggestCalendar,
   spawnChildGoal,
   toggleGuildReaction,
+  updateCalendarBlock,
   type BattleEvent,
   type CalendarBlock,
   type CharacterClass,
@@ -93,6 +98,7 @@ import {
   type LeaderboardEntry,
   type OracleReply,
   type OracleStatus,
+  type OnboardingState,
   type ModerationEvent,
   type WeeklyReview,
   type WeeklyReviewCompare,
@@ -104,13 +110,12 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
 
-type View = "HOME" | "GOALS" | "CALENDAR" | "REVIEW" | "CHARACTER" | "GUILD" | "ABOUT";
+type View = "HOME" | "GOALS" | "CALENDAR" | "CHARACTER" | "GUILD" | "ABOUT";
 
 const navItems: { label: View; icon: typeof Home }[] = [
   { label: "HOME", icon: Home },
   { label: "GOALS", icon: Target },
   { label: "CALENDAR", icon: CalendarDays },
-  { label: "REVIEW", icon: BookOpen },
   { label: "CHARACTER", icon: UserRound },
   { label: "GUILD", icon: Shield },
   { label: "ABOUT", icon: Info }
@@ -159,6 +164,49 @@ const statIcons: Record<string, typeof Dumbbell> = {
 const OPERATOR_LOGO_SRC = "/operator-logo.png";
 
 type AmbienceMode = "auth" | "app";
+
+type NotificationSettings = {
+  enabled: boolean;
+  dailyGoalReminder: boolean;
+  dailyGoalTime: string;
+  streakAlert: boolean;
+  streakAlertTime: string;
+  maxPushesPerDay: number;
+  dailyTemplate: string;
+  streakTemplate: string;
+};
+
+const defaultNotificationSettings: NotificationSettings = {
+  enabled: true,
+  dailyGoalReminder: true,
+  dailyGoalTime: "08:00",
+  streakAlert: true,
+  streakAlertTime: "18:30",
+  maxPushesPerDay: 2,
+  dailyTemplate: "Your mission awaits, [Username]. 3 tasks today.",
+  streakTemplate: "Day [X] streak - don't break it now. 1 task remaining."
+};
+
+const onboardingSteps = [
+  {
+    title: "Life Mission",
+    prompt: "Set the purpose everything else serves.",
+    field: "life_mission" as const,
+    placeholder: "I am building a disciplined, useful, adventurous life..."
+  },
+  {
+    title: "3-5 Year Vision",
+    prompt: "Name the future version of you with enough detail to aim at.",
+    field: "vision_3_5_year" as const,
+    placeholder: "In five years I live, work, learn, and lead like..."
+  },
+  {
+    title: "1-Year Goal",
+    prompt: "Choose the annual breakthrough that would change the board.",
+    field: "one_year_goal" as const,
+    placeholder: "This year I will..."
+  }
+];
 
 function useBackgroundAmbience(mode: AmbienceMode) {
   useEffect(() => {
@@ -300,6 +348,8 @@ export function OperatorApp() {
   const [callsign, setCallsignValue] = useState("");
   const [activeView, setActiveView] = useState<View>("HOME");
   const [battleEvent, setBattleEvent] = useState<BattleEvent | null>(null);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const playSound = useRetroSound();
@@ -316,6 +366,18 @@ export function OperatorApp() {
 
     getMe(accessToken).then(setUser).catch(clear);
   }, [accessToken, clear, setUser, user]);
+
+  useEffect(() => {
+    if (!accessToken || !user || user.requires_callsign || onboardingState || onboardingLoading) {
+      return;
+    }
+
+    setOnboardingLoading(true);
+    getOnboardingState(accessToken)
+      .then(setOnboardingState)
+      .catch(() => setOnboardingState({ life_mission: "", vision_3_5_year: "", one_year_goal: "", monthly_goals: [], character_class: null, completed: true }))
+      .finally(() => setOnboardingLoading(false));
+  }, [accessToken, onboardingLoading, onboardingState, user]);
 
   async function submitAuth() {
     setLoading(true);
@@ -394,6 +456,30 @@ export function OperatorApp() {
     );
   }
 
+  if (onboardingLoading || !onboardingState) {
+    return (
+      <main className="flex min-h-screen items-center justify-center px-5 text-white">
+        <section className="operator-panel w-full max-w-md p-6 text-center">
+          <OperatorLogo className="mx-auto mb-5 h-20 w-20" />
+          <h1 className="operator-glow text-3xl uppercase">Loading Mission File</h1>
+          <p className="mt-3 text-sm text-white/55">Preparing your first directive.</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!onboardingState.completed) {
+    return (
+      <OnboardingFlow
+        accessToken={accessToken}
+        callsign={user.callsign ?? "OPERATOR"}
+        initialState={onboardingState}
+        onComplete={setOnboardingState}
+        playSound={playSound}
+      />
+    );
+  }
+
   return (
     <Shell
       accessToken={accessToken}
@@ -405,6 +491,154 @@ export function OperatorApp() {
       setBattleEvent={setBattleEvent}
       submitLogout={submitLogout}
     />
+  );
+}
+
+function OnboardingFlow({
+  accessToken,
+  callsign,
+  initialState,
+  onComplete,
+  playSound
+}: {
+  accessToken: string;
+  callsign: string;
+  initialState: OnboardingState;
+  onComplete: (state: OnboardingState) => void;
+  playSound: (kind?: "select" | "confirm" | "error") => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState<Omit<OnboardingState, "completed">>({
+    life_mission: initialState.life_mission,
+    vision_3_5_year: initialState.vision_3_5_year,
+    one_year_goal: initialState.one_year_goal,
+    monthly_goals: initialState.monthly_goals.length ? initialState.monthly_goals : ["", "", ""],
+    character_class: initialState.character_class
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const totalSteps = 5;
+
+  async function finishOnboarding() {
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await saveOnboardingState(accessToken, {
+        ...form,
+        monthly_goals: form.monthly_goals.map((goal) => goal.trim()).filter(Boolean)
+      });
+      playSound("confirm");
+      onComplete(saved);
+    } catch (err) {
+      playSound("error");
+      setError(err instanceof Error ? err.message : "Onboarding save failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function nextStep() {
+    playSound("select");
+    setStep((value) => Math.min(totalSteps - 1, value + 1));
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center px-5 py-8 text-white">
+      <section className="operator-panel onboarding-cinema w-full max-w-2xl overflow-hidden p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.32em] text-operator-cyan">Onboarding {step + 1}/{totalSteps}</p>
+            <h1 className="operator-glow mt-2 text-3xl uppercase">{step < 3 ? onboardingSteps[step].title : step === 3 ? "This Month" : "Oracle Link"}</h1>
+          </div>
+          <OperatorLogo className="h-16 w-16" />
+        </div>
+
+        <div className="mt-5 h-1 bg-white/10">
+          <div className="h-full bg-operator-cyan transition-all" style={{ width: `${((step + 1) / totalSteps) * 100}%` }} />
+        </div>
+
+        <div className="mt-6 min-h-80">
+          {step < 3 && (
+            <label className="block">
+              <span className="text-sm text-white/55">{onboardingSteps[step].prompt}</span>
+              <textarea
+                className="mt-4 min-h-56 w-full border border-operator-purple/70 bg-black/45 p-4 text-sm leading-6 outline-none focus:border-operator-cyan"
+                placeholder={onboardingSteps[step].placeholder}
+                value={form[onboardingSteps[step].field]}
+                onChange={(event) => setForm((current) => ({ ...current, [onboardingSteps[step].field]: event.target.value }))}
+              />
+            </label>
+          )}
+
+          {step === 3 && (
+            <div>
+              <p className="text-sm text-white/55">Answer the power questions by turning this month into three to five concrete missions.</p>
+              <div className="mt-4 space-y-3">
+                {form.monthly_goals.slice(0, 5).map((goal, index) => (
+                  <input
+                    className="w-full border border-operator-purple/50 bg-black/45 px-4 py-3 text-sm outline-none focus:border-operator-cyan"
+                    key={`month-goal-${index}`}
+                    placeholder={["What must become true this month?", "What action repeats weekly?", "What will prove progress?"][index] ?? "Optional monthly mission"}
+                    value={goal}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        monthly_goals: current.monthly_goals.map((item, itemIndex) => (itemIndex === index ? event.target.value : item))
+                      }))
+                    }
+                  />
+                ))}
+              </div>
+              {form.monthly_goals.length < 5 && (
+                <button
+                  className="mt-3 border border-white/15 px-3 py-2 text-xs uppercase text-white/55"
+                  onClick={() => setForm((current) => ({ ...current, monthly_goals: [...current.monthly_goals, ""] }))}
+                >
+                  Add Mission
+                </button>
+              )}
+            </div>
+          )}
+
+          {step === 4 && (
+            <section className="daily-affirmation border border-operator-cyan/70 bg-black/45 p-5">
+              <p className="text-xs uppercase tracking-[0.3em] text-operator-cyan">Oracle Introduction</p>
+              <p className="mt-5 text-lg leading-8 text-white">
+                {callsign}, your first affirmation is live: I convert purpose into visible action, one clear mission at a time.
+              </p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                {characterClasses.map((characterClass) => (
+                  <button
+                    className={`border px-3 py-3 text-xs uppercase ${
+                      form.character_class === characterClass ? "border-operator-cyan bg-operator-cyan/10 text-operator-cyan" : "border-white/15 text-white/55"
+                    }`}
+                    key={characterClass}
+                    onClick={() => setForm((current) => ({ ...current, character_class: characterClass }))}
+                  >
+                    {characterClass}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{error}</p>}
+
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <button className="border border-white/15 px-4 py-3 text-xs uppercase text-white/55 disabled:opacity-30" disabled={step === 0 || busy} onClick={() => setStep((value) => Math.max(0, value - 1))}>
+            Back
+          </button>
+          <button
+            className="border border-operator-cyan bg-operator-cyan/10 px-5 py-3 text-xs uppercase tracking-[0.22em] text-operator-cyan disabled:opacity-40"
+            disabled={busy}
+            onClick={step === totalSteps - 1 ? finishOnboarding : nextStep}
+          >
+            {busy ? "Saving" : step === totalSteps - 1 ? "Enter Command" : "Continue"}
+          </button>
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -427,6 +661,9 @@ function Shell({
   setBattleEvent: (event: BattleEvent | null) => void;
   submitLogout: () => void;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(defaultNotificationSettings);
+
   return (
     <main className="min-h-screen pb-24 text-white">
       <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-8">
@@ -438,22 +675,34 @@ function Shell({
               <h1 className="operator-glow mt-2 text-4xl uppercase leading-none text-white">{callsign}</h1>
             </div>
           </div>
-          <button className="border border-white/25 p-3 text-white/55" onClick={submitLogout} title="Logout">
-            <LogOut size={22} />
-          </button>
+          <div className="flex gap-2">
+            <button className="border border-operator-cyan/60 p-3 text-operator-cyan" onClick={() => setSettingsOpen(true)} title="Notification settings">
+              <Settings size={22} />
+            </button>
+            <button className="border border-white/25 p-3 text-white/55" onClick={submitLogout} title="Logout">
+              <LogOut size={22} />
+            </button>
+          </div>
         </header>
 
-        {activeView === "HOME" && <HomeView accessToken={accessToken} battleEvent={battleEvent} callsign={callsign} playSound={playSound} />}
+        {activeView === "HOME" && (
+          <HomeView
+            accessToken={accessToken}
+            battleEvent={battleEvent}
+            callsign={callsign}
+            notificationSettings={notificationSettings}
+            playSound={playSound}
+          />
+        )}
         {activeView === "GOALS" && <GoalsMatrix accessToken={accessToken} onBattleEvent={setBattleEvent} playSound={playSound} />}
         {activeView === "CALENDAR" && <CalendarView accessToken={accessToken} />}
-        {activeView === "REVIEW" && <WeeklyReviewView accessToken={accessToken} playSound={playSound} />}
         {activeView === "CHARACTER" && <CharacterView accessToken={accessToken} battleEvent={battleEvent} playSound={playSound} />}
         {activeView === "GUILD" && <GuildView accessToken={accessToken} playSound={playSound} />}
         {activeView === "ABOUT" && <AboutView />}
       </section>
 
       <nav className="fixed inset-x-0 bottom-0 border-t border-operator-purple/65 bg-[#08080b]/95">
-        <div className="mx-auto grid max-w-3xl grid-cols-7">
+        <div className="mx-auto grid max-w-3xl grid-cols-6">
           {navItems.map(({ label, icon: Icon }) => (
             <button
               className={`flex flex-col items-center gap-1 px-2 py-3 text-[11px] uppercase ${
@@ -471,7 +720,140 @@ function Shell({
           ))}
         </div>
       </nav>
+      {settingsOpen && (
+        <NotificationSettingsModal
+          callsign={callsign}
+          settings={notificationSettings}
+          setSettings={setNotificationSettings}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+function NotificationSettingsModal({
+  callsign,
+  onClose,
+  settings,
+  setSettings
+}: {
+  callsign: string;
+  onClose: () => void;
+  settings: NotificationSettings;
+  setSettings: (settings: NotificationSettings) => void;
+}) {
+  const previewDaily = settings.dailyTemplate.replace("[Username]", callsign);
+  const previewStreak = settings.streakTemplate.replace("[X]", "7");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-5">
+      <section className="operator-panel w-full max-w-xl p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-operator-cyan">Settings</p>
+            <h2 className="operator-glow mt-2 text-2xl uppercase">Notifications</h2>
+          </div>
+          <button className="text-white/60" onClick={onClose} title="Close settings">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <ToggleRow
+            checked={settings.enabled}
+            label="Push Notifications"
+            onChange={(value) => setSettings({ ...settings, enabled: value })}
+          />
+          <ToggleRow
+            checked={settings.dailyGoalReminder}
+            label="Daily Goal Reminder"
+            onChange={(value) => setSettings({ ...settings, dailyGoalReminder: value })}
+          />
+          <ToggleRow
+            checked={settings.streakAlert}
+            label="Streak Alert"
+            onChange={(value) => setSettings({ ...settings, streakAlert: value })}
+          />
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase text-white/45">Morning</span>
+              <input
+                className="w-full border border-white/15 bg-black/45 px-3 py-2 text-sm"
+                type="time"
+                value={settings.dailyGoalTime}
+                onChange={(event) => setSettings({ ...settings, dailyGoalTime: event.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase text-white/45">Streak</span>
+              <input
+                className="w-full border border-white/15 bg-black/45 px-3 py-2 text-sm"
+                type="time"
+                value={settings.streakAlertTime}
+                onChange={(event) => setSettings({ ...settings, streakAlertTime: event.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase text-white/45">Max / Day</span>
+              <input
+                className="w-full border border-white/15 bg-black/45 px-3 py-2 text-sm"
+                max={6}
+                min={0}
+                type="number"
+                value={settings.maxPushesPerDay}
+                onChange={(event) => setSettings({ ...settings, maxPushesPerDay: Number(event.target.value) })}
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="mb-2 block text-xs uppercase text-white/45">Daily Template</span>
+            <input
+              className="w-full border border-operator-purple/50 bg-black/45 px-3 py-3 text-sm"
+              value={settings.dailyTemplate}
+              onChange={(event) => setSettings({ ...settings, dailyTemplate: event.target.value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-xs uppercase text-white/45">Streak Template</span>
+            <input
+              className="w-full border border-operator-purple/50 bg-black/45 px-3 py-3 text-sm"
+              value={settings.streakTemplate}
+              onChange={(event) => setSettings({ ...settings, streakTemplate: event.target.value })}
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <NotificationPreview icon={<Bell size={16} />} label={settings.dailyGoalTime} text={previewDaily} />
+            <NotificationPreview icon={<Zap size={16} />} label={settings.streakAlertTime} text={previewStreak} />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ToggleRow({ checked, label, onChange }: { checked: boolean; label: string; onChange: (value: boolean) => void }) {
+  return (
+    <button className="flex w-full items-center justify-between border border-white/10 bg-black/30 px-3 py-3 text-left" onClick={() => onChange(!checked)}>
+      <span className="text-sm uppercase text-white/75">{label}</span>
+      <span className={`h-6 w-11 border p-1 ${checked ? "border-operator-cyan bg-operator-cyan/15" : "border-white/25 bg-white/5"}`}>
+        <span className={`block h-3 w-3 bg-current transition-transform ${checked ? "translate-x-5 text-operator-cyan" : "text-white/35"}`} />
+      </span>
+    </button>
+  );
+}
+
+function NotificationPreview({ icon, label, text }: { icon: ReactNode; label: string; text: string }) {
+  return (
+    <article className="border border-operator-cyan/60 bg-black/35 p-3">
+      <div className="flex items-center gap-2 text-operator-cyan">
+        {icon}
+        <span className="text-xs uppercase tracking-[0.18em]">{label}</span>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-white/75">{text}</p>
+    </article>
   );
 }
 
@@ -479,14 +861,18 @@ function HomeView({
   accessToken,
   battleEvent,
   callsign,
+  notificationSettings,
   playSound
 }: {
   accessToken: string;
   battleEvent: BattleEvent | null;
   callsign: string;
+  notificationSettings: NotificationSettings;
   playSound: (kind?: "select" | "confirm" | "error") => void;
 }) {
   const [oracleStatus, setOracleStatus] = useState<OracleStatus | null>(null);
+  const [goalList, setGoalList] = useState<GoalList | null>(null);
+  const [profile, setProfile] = useState<CharacterProfile | null>(null);
   const [oracleInput, setOracleInput] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "oracle" | "operator"; text: string; provider?: string }>>([
     {
@@ -498,7 +884,20 @@ function HomeView({
 
   useEffect(() => {
     getOracleStatus(accessToken).then(setOracleStatus).catch(() => setOracleStatus(null));
+    listGoals(accessToken).then(setGoalList).catch(() => setGoalList(null));
+    getCharacterProfile(accessToken).then(setProfile).catch(() => setProfile(null));
   }, [accessToken]);
+
+  const todayGoals = useMemo(
+    () => [...(goalList?.grouped.daily_part_1 ?? []), ...(goalList?.grouped.daily_part_2 ?? [])].sort((a, b) => b.priority - a.priority).slice(0, 3),
+    [goalList]
+  );
+  const todayTotal = todayGoals.reduce((sum, goal) => sum + goal.target_count, 0);
+  const todayDone = todayGoals.reduce((sum, goal) => sum + goal.completed_count, 0);
+  const openTasks = todayGoals.filter((goal) => !goal.is_complete).length;
+  const reminderText = notificationSettings.dailyTemplate
+    .replace("[Username]", callsign)
+    .replace("3 tasks", `${openTasks} ${openTasks === 1 ? "task" : "tasks"}`);
 
   async function transmitIntent() {
     const message = oracleInput.trim();
@@ -531,14 +930,40 @@ function HomeView({
       <section className="grid grid-cols-3 gap-3">
         {[
           ["0", "Streak"],
-          ["0", "Total XP"],
-          ["0/0", "Today"]
+          [String(profile?.xp ?? 0), "Total XP"],
+          [`${todayDone}/${todayTotal}`, "Today"]
         ].map(([value, label]) => (
           <article className="operator-panel px-4 py-5 text-center" key={label}>
             <p className="text-xl text-operator-cyan">{value}</p>
             <p className="mt-2 text-xs uppercase text-white/55">{label}</p>
           </article>
         ))}
+      </section>
+
+      <section className="operator-panel grid gap-4 p-4 md:grid-cols-[220px_1fr]">
+        <div className="border border-white/10 bg-black/30 p-3">
+          {profile ? <PixelAvatar profile={profile} /> : <OperatorLogo className="mx-auto h-28 w-28" />}
+          <p className="mt-3 text-center text-xs uppercase text-white/45">
+            {profile ? `Level ${profile.level} / ${profile.character_class}` : "Character Sync Pending"}
+          </p>
+        </div>
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="operator-glow text-2xl uppercase">Today's Priority Tasks</h2>
+            <span className="text-xs uppercase text-operator-cyan">{todayDone}/{todayTotal}</span>
+          </div>
+          <div className="mt-4 space-y-2">
+            {todayGoals.map((goal) => (
+              <article className="grid grid-cols-[28px_1fr_auto] items-center gap-3 border border-white/10 bg-black/25 p-3" key={goal.id}>
+                <span className={`completion-burst h-5 w-5 border ${goal.is_complete ? "is-complete border-operator-cyan bg-operator-cyan/20" : "border-white/25"}`} />
+                <span className="min-w-0 text-sm uppercase text-white/80">{goal.title}</span>
+                <span className="text-xs text-operator-cyan">{goal.completed_count}/{goal.target_count}</span>
+              </article>
+            ))}
+            {todayGoals.length === 0 && <p className="border border-white/10 bg-black/25 p-3 text-sm text-white/45">No daily priority tasks yet.</p>}
+          </div>
+          <NotificationPreview icon={<Bell size={16} />} label={`${notificationSettings.maxPushesPerDay} push max`} text={reminderText} />
+        </div>
       </section>
 
       <BattleSimulator battleEvent={battleEvent} callsign={callsign} />
@@ -2000,7 +2425,7 @@ function BattleSimulator({ battleEvent, callsign }: { battleEvent: BattleEvent |
         <span className="text-xs uppercase text-operator-purple">Boss HP {bossHp}%</span>
       </div>
 
-      <div className="relative h-44 border border-white/10 bg-black/60">
+      <div className={`relative h-44 border border-white/10 bg-black/60 ${battleEvent ? "boss-win-shake" : ""}`}>
         <div className="absolute inset-x-0 bottom-0 h-10 border-t border-operator-purple/30 bg-operator-purple/5" />
         <div
           className={`absolute bottom-10 left-8 h-24 w-16 border-2 border-operator-cyan bg-operator-surface ${
@@ -2028,6 +2453,7 @@ function BattleSimulator({ battleEvent, callsign }: { battleEvent: BattleEvent |
 
         {battleEvent && (
           <>
+            <div className="neon-boss-explosion absolute right-16 top-14 h-24 w-24" />
             <div className="absolute left-1/2 top-8 animate-[combatFloat_1100ms_ease-out_1] text-xl text-operator-cyan">
               +{battleEvent.xp_awarded} XP
             </div>
@@ -2038,6 +2464,16 @@ function BattleSimulator({ battleEvent, callsign }: { battleEvent: BattleEvent |
               {battleEvent.stat_key} sync {battleEvent.leveled_up ? "/ level up" : "/ stable"}
               {battleEvent.achievement_unlocked ? ` / ${battleEvent.achievement_unlocked}` : ""}
             </div>
+            {battleEvent.leveled_up && (
+              <div className="level-up-flash absolute inset-0 flex items-center justify-center text-3xl uppercase text-white">
+                Level Up
+              </div>
+            )}
+            {battleEvent.achievement_unlocked && (
+              <div className="achievement-pop absolute right-4 top-4 border border-operator-cyan bg-black/85 px-3 py-2 text-xs uppercase text-operator-cyan">
+                Achievement Unlocked
+              </div>
+            )}
           </>
         )}
       </div>
