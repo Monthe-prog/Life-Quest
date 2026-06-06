@@ -138,7 +138,7 @@ const developers = [
     name: "Yann Aymerick Atsa Atsa",
     role: "Scrum Master + Frontend Lead",
     image:
-      "https://scontent-los4-1.xx.fbcdn.net/v/t39.30808-1/396287513_312706138148572_7324980911721982528_n.jpg?stp=dst-jpg_s200x200_tt6&_nc_cat=102&ccb=1-7&_nc_sid=e99d92&_nc_eui2=AeFAfrVmq1j4R/dQm_skI1AzcdNuxzUNrDJ1027HNQ2sMnUFLW2-niWjGxxDeNrLYP9aBFnoGFiXgUmsvVYiV1jg2&_nc_ohc=IKH2NfQUMn8Q7kNvwHEp8qG&_nc_oc=AdojM2_nTDgCT2usmlT8tdDEtqw-fOGCJeJmYcSohttVJRJsYw65CxWqh4oaAjJcpJc&_nc_zt=24&_nc_ht=scontent-los4-1.xx&_nc_gid=Rsd7vwUpJVheF6ThRg6njw&_nc_ss=7b2a8&oh=00_Af_oIRnfEIETB-u-jnHwoO2qD4YRJe-8CLH2f_dH2j9LoQ&oe=6A28E533"
+      "https://i.pinimg.com/736x/cd/39/ef/cd39ef74c2d90a25f603f8c43269cb11.jpg"
   },
   {
     name: "Monthe Joseph Christian",
