@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -314,17 +314,6 @@ async def update_goal(
     return serialize_goal(goal)
 
 
-@router.delete("/{goal_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
-async def delete_goal(
-    goal_id: str,
-    user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> None:
-    goal = await get_owned_goal(db, user, goal_id)
-    await db.delete(goal)
-    await db.commit()
-
-
 @router.post("/{goal_id}/progress", response_model=GoalProgressResponse)
 async def change_progress(
     goal_id: str,
@@ -416,4 +405,4 @@ async def accept_oracle_breakdown(
     for child in children:
         await db.refresh(child)
 
-    return BreakdownAcceptResponse(parent=serialize_goal(parent), children=[serialize_goal(child) for child in children])
+    return BreakdownResponse(parent=serialize_goal(parent), children=[serialize_goal(child) for child in children])

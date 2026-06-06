@@ -745,22 +745,216 @@ async def remove_member(member_id: str, user: Annotated[User, Depends(get_curren
     return await guild_overview(user, db)
 
 
-@router.delete("/membership", status_code=status.HTTP_204_NO_CONTENT)
-async def quit_guild(user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]) -> None:
-    membership = await require_membership(db, user)
-    if membership.role == "owner":
-        guild = await db.get(Guild, membership.guild_id)
-        if guild is not None:
-            await db.delete(guild)
-    else:
-        await add_moderation_event(db, membership.guild_id, user.id, "member_left", user.id)
-        await db.delete(membership)
-    await db.commit()
-
-
 @router.get("/global", response_model=list[FeedEventResponse])
 async def global_feed(user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]) -> list[FeedEventResponse]:
     result = await db.scalars(
         select(ActivityEvent).where(ActivityEvent.event_type == "battle_reward").order_by(ActivityEvent.created_at.desc()).limit(50)
     )
     return [await serialize_feed_event(db, event) for event in result]
+
+
+@router.get("/members", response_model=list[GuildMemberResponse])
+async def list_members(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[GuildMemberResponse]:
+    membership = await require_membership(db, user)
+    result = await db.scalars(select(GuildMembership).where(GuildMembership.guild_id == membership.guild_id))
+    return [
+        GuildMemberResponse(user_id=member.user_id, operator=await operator_name(db, member.user_id) or "OPERATOR", role=member.role)
+        for member in result
+    ]
+
+
+@router.get("/leaderboard", response_model=list[GuildLeaderboardEntry])
+async def leaderboard(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[GuildLeaderboardEntry]:
+    guilds = await db.scalars(select(Guild).order_by(Guild.created_at.desc()).limit(50))
+    rows: list[GuildLeaderboardEntry] = []
+    for guild in guilds:
+        memberships = list(await db.scalars(select(GuildMembership).where(GuildMembership.guild_id == guild.id)))
+        xp_sum = 0
+        for member in memberships:
+            character = await db.scalar(select(CharacterProfile).where(CharacterProfile.user_id == member.user_id))
+            xp_sum += character.xp if character else 0
+        rows.append(GuildLeaderboardEntry(guild_id=guild.id, name=guild.name, member_xp_sum=xp_sum, guild_xp=int(xp_sum * 0.05)))
+    return sorted(rows, key=lambda row: row.guild_xp, reverse=True)
+
+
+@router.post("/members/{target_user_id}/promote", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
+async def promote_member(
+    target_user_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    membership = await require_membership(db, user)
+    if membership.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the guild creator can promote moderators")
+    moderators = list(
+        await db.scalars(select(GuildMembership).where(GuildMembership.guild_id == membership.guild_id, GuildMembership.role == "moderator"))
+    )
+    if len(moderators) >= 2:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Guild can only have two moderators")
+    target = await db.scalar(select(GuildMembership).where(GuildMembership.guild_id == membership.guild_id, GuildMembership.user_id == target_user_id))
+    if target is None or target.role == "owner":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not eligible")
+    target.role = "moderator"
+    db.add(target)
+    await log_moderation(db, membership.guild_id, user.id, "promote", target_user_id)
+    await db.commit()
+
+
+@router.post("/members/{target_user_id}/demote", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
+async def demote_member(
+    target_user_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    membership = await require_membership(db, user)
+    if membership.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the guild creator can demote moderators")
+    target = await db.scalar(select(GuildMembership).where(GuildMembership.guild_id == membership.guild_id, GuildMembership.user_id == target_user_id))
+    if target is None or target.role != "moderator":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Moderator not found")
+    target.role = "member"
+    db.add(target)
+    await log_moderation(db, membership.guild_id, user.id, "demote", target_user_id)
+    await db.commit()
+
+
+@router.delete("/members/{target_user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
+async def kick_member(
+    target_user_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    membership = await require_membership(db, user)
+    if not can_moderate(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only moderators can remove members")
+    target = await db.scalar(select(GuildMembership).where(GuildMembership.guild_id == membership.guild_id, GuildMembership.user_id == target_user_id))
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    if target.role == "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Moderators cannot remove the owner")
+    await db.delete(target)
+    await log_moderation(db, membership.guild_id, user.id, "kick", target_user_id)
+    await db.commit()
+
+
+@router.get("/chat", response_model=list[GuildChatResponse])
+async def list_chat(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    q: str | None = None,
+    member_id: str | None = None,
+    emoji: str | None = None,
+) -> list[GuildChatResponse]:
+    membership = await require_membership(db, user)
+    query = select(GuildChatMessage).where(GuildChatMessage.guild_id == membership.guild_id, GuildChatMessage.hidden_at.is_(None))
+    if member_id:
+        query = query.where(GuildChatMessage.user_id == member_id)
+    if q:
+        query = query.where(GuildChatMessage.body.ilike(f"%{q}%"))
+    if emoji:
+        query = query.where(GuildChatMessage.top_emoji == emoji)
+    result = await db.scalars(query.order_by(GuildChatMessage.created_at.desc()).limit(100))
+    return [await serialize_chat_message(db, message) for message in result]
+
+
+@router.post("/chat", response_model=GuildChatResponse, status_code=status.HTTP_201_CREATED)
+async def post_chat(
+    payload: GuildChatCreate,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> GuildChatResponse:
+    membership = await require_membership(db, user)
+    message = GuildChatMessage(guild_id=membership.guild_id, user_id=user.id, body=payload.body.strip(), goal_id=payload.goal_id)
+    db.add(message)
+    await db.commit()
+    await db.refresh(message)
+    return await serialize_chat_message(db, message)
+
+
+@router.put("/chat/{message_id}/reaction", response_model=GuildChatResponse)
+async def set_reaction(
+    message_id: str,
+    payload: ReactionPayload,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> GuildChatResponse:
+    membership = await require_membership(db, user)
+    message = await db.scalar(select(GuildChatMessage).where(GuildChatMessage.id == message_id, GuildChatMessage.guild_id == membership.guild_id))
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    reaction = await db.scalar(select(GuildChatReaction).where(GuildChatReaction.message_id == message.id, GuildChatReaction.user_id == user.id))
+    if reaction is None:
+        reaction = GuildChatReaction(message_id=message.id, user_id=user.id, emoji=payload.emoji)
+    else:
+        reaction.emoji = payload.emoji
+    db.add(reaction)
+    await db.flush()
+    await update_message_reaction_baseline(db, message)
+    await db.commit()
+    await db.refresh(message)
+    return await serialize_chat_message(db, message)
+
+
+@router.delete("/chat/{message_id}/reaction", response_model=GuildChatResponse)
+async def clear_reaction(
+    message_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> GuildChatResponse:
+    membership = await require_membership(db, user)
+    message = await db.scalar(select(GuildChatMessage).where(GuildChatMessage.id == message_id, GuildChatMessage.guild_id == membership.guild_id))
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    reaction = await db.scalar(select(GuildChatReaction).where(GuildChatReaction.message_id == message.id, GuildChatReaction.user_id == user.id))
+    if reaction is not None:
+        await db.delete(reaction)
+        await db.flush()
+        await update_message_reaction_baseline(db, message)
+        await db.commit()
+    return await serialize_chat_message(db, message)
+
+
+@router.delete("/chat/{message_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
+async def hide_chat_message(
+    message_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    membership = await require_membership(db, user)
+    if not can_moderate(membership.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only moderators can hide messages")
+    message = await db.scalar(select(GuildChatMessage).where(GuildChatMessage.id == message_id, GuildChatMessage.guild_id == membership.guild_id))
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    message.hidden_at = now_utc()
+    message.hidden_by_user_id = user.id
+    db.add(message)
+    await log_moderation(db, membership.guild_id, user.id, "hide_message", message.user_id, {"message_id": message.id})
+    await db.commit()
+
+
+@router.get("/moderation", response_model=list[ModerationEventResponse])
+async def moderation_feed(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[ModerationEventResponse]:
+    membership = await require_membership(db, user)
+    events = await db.scalars(
+        select(GuildModerationEvent).where(GuildModerationEvent.guild_id == membership.guild_id).order_by(GuildModerationEvent.created_at.desc()).limit(100)
+    )
+    return [
+        ModerationEventResponse(
+            id=event.id,
+            event_type=event.event_type,
+            actor=await operator_name(db, event.actor_user_id) or "OPERATOR",
+            target=await operator_name(db, event.target_user_id),
+            created_at=event.created_at.isoformat(),
+        )
+        for event in events
+    ]
