@@ -19,13 +19,14 @@
       JWT_REFRESH_TOKEN_DAYS: "30"
       OLLAMA_BASE_URL: http://ollama-service:11434
       OLLAMA_MODEL: llama3
-      OPENAI_API_KEY: ""
       OPENAI_MODEL: gpt-5.5
       FRONTEND_PORT: "3000"
       NEXT_PUBLIC_API_BASE_URL: "http://{{ app_domain }}"
       NEXT_PUBLIC_WS_BASE_URL: "ws://{{ app_domain }}"
       PROMETHEUS_PORT: "9090"
+      PROMETHEUS_EXTERNAL_URL: "http://{{ app_domain }}/prometheus/"
       GRAFANA_PORT: "3001"
+      GRAFANA_ROOT_URL: "http://{{ app_domain }}/grafana/"
       GRAFANA_ADMIN_USER: admin
       GRAFANA_ADMIN_PASSWORD: operator_grafana_password
 
@@ -46,16 +47,38 @@
         force: true
       become_user: deploy
 
-    - name: Write application environment file
+    - name: Create application environment file if missing
       ansible.builtin.copy:
         dest: "{{ app_dir }}/.env"
         owner: deploy
         group: deploy
         mode: "0600"
+        force: false
         content: |
           {% for key, value in app_env.items() %}
           {{ key }}={{ value }}
           {% endfor %}
+
+          # Set this on the VPS when using OpenAI-backed features:
+          # OPENAI_API_KEY=sk-...
+
+    - name: Ensure Prometheus external URL is present
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/.env"
+        regexp: "^PROMETHEUS_EXTERNAL_URL="
+        line: "PROMETHEUS_EXTERNAL_URL=http://{{ app_domain }}/prometheus/"
+        owner: deploy
+        group: deploy
+        mode: "0600"
+
+    - name: Ensure Grafana root URL is present
+      ansible.builtin.lineinfile:
+        path: "{{ app_dir }}/.env"
+        regexp: "^GRAFANA_ROOT_URL="
+        line: "GRAFANA_ROOT_URL=http://{{ app_domain }}/grafana/"
+        owner: deploy
+        group: deploy
+        mode: "0600"
 
     - name: Build and start application plus monitoring containers
       ansible.builtin.command:
