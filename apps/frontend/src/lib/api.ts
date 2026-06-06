@@ -85,6 +85,11 @@ export type CalendarBlock = {
   alignment_status: string;
 };
 
+export type CalendarSuggestResponse = {
+  blocks: CalendarBlock[];
+  warnings: string[];
+};
+
 export type CharacterClass = "Cyber-Monk" | "Netrunner" | "Dreadnought";
 
 export type CharacterStat = {
@@ -497,8 +502,17 @@ export function deleteCalendarBlock(accessToken: string, blockId: string) {
   });
 }
 
+export function clearGeneratedCalendarWeek(accessToken: string) {
+  return apiRequest<void>("/api/calendar/week/generated", {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+}
+
 export function suggestCalendar(accessToken: string) {
-  return apiRequest<{ blocks: CalendarBlock[] }>("/api/calendar/suggest", {
+  return apiRequest<CalendarSuggestResponse>("/api/calendar/suggest", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`
