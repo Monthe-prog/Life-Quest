@@ -2126,7 +2126,7 @@ function AuthFrame(props: AuthFrameProps) {
 
         <div className="space-y-4">
           <CyberInput label="Email" value={props.email} onChange={props.setEmail} />
-          <CyberInput label="Password" type="password" value={props.password} onChange={props.setPassword} />
+          <CyberInput label="Password" minLength={8} type="password" value={props.password} onChange={props.setPassword} />
           {props.error && <p className="border border-red-500/70 px-3 py-2 text-sm text-red-300">{props.error}</p>}
           <button
             className="w-full border border-operator-purple bg-operator-purple/10 px-5 py-4 text-lg uppercase tracking-[0.25em] text-operator-purple shadow-[0_0_20px_rgba(208,0,255,0.45)] disabled:opacity-50"
@@ -2192,11 +2192,13 @@ function CallsignGate(props: CallsignGateProps) {
 
 function CyberInput({
   label,
+  minLength,
   onChange,
   type = "text",
   value
 }: {
   label: string;
+  minLength?: number;
   onChange: (value: string) => void;
   type?: string;
   value: string;
@@ -2206,6 +2208,7 @@ function CyberInput({
       <span className="mb-2 block text-sm uppercase tracking-[0.22em] text-operator-purple">{label}</span>
       <input
         className="w-full border border-operator-purple/70 bg-operator-surface px-4 py-4 text-sm outline-none focus:border-operator-cyan"
+        minLength={minLength}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -1,5 +1,32 @@
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
+function formatApiError(error: unknown): string {
+  if (!error || typeof error !== "object" || !("detail" in error)) {
+    return "Request failed";
+  }
+
+  const detail = (error as { detail: unknown }).detail;
+
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) {
+          const location = "loc" in item && Array.isArray(item.loc) ? item.loc.join(".") : "field";
+          return `${location}: ${String(item.msg)}`;
+        }
+
+        return String(item);
+      })
+      .join("; ");
+  }
+
+  return "Request failed";
+}
+
 export type TokenPair = {
   access_token: string;
   refresh_token: string;
@@ -200,7 +227,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail ?? "Request failed");
+    throw new Error(formatApiError(error));
   }
 
   if (response.status === 204) {
