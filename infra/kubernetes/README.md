@@ -1,5 +1,13 @@
 # OPERATOR Kubernetes Deployment
 
+For a VPS where Docker Compose, Nginx, Prometheus, Grafana, and Jenkins are already working, use the safer side-by-side deployment guide first:
+
+```text
+docs/kubernetes-vps-safe.md
+```
+
+That guide installs K3s without Traefik/ServiceLB and exposes Kubernetes on high ports so it does not hijack port `80`.
+
 These manifests target a single-node K3s VPS with Traefik enabled.
 
 ## 1. Build and Push Images

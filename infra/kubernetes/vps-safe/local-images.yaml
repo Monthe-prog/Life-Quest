@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backend-migrate
+  namespace: operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: migrate
+          image: life-quest-backend:latest
+          imagePullPolicy: Never
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: backend
+          image: life-quest-backend:latest
+          imagePullPolicy: Never
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: frontend
+          image: life-quest-frontend:latest
+          imagePullPolicy: Never

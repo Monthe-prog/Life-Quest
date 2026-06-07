@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operator-config
+  namespace: operator
+data:
+  BACKEND_CORS_ORIGINS: "http://158.220.90.106:31080,http://158.220.90.106"
+  NEXT_PUBLIC_API_BASE_URL: "http://158.220.90.106:31000"
+  NEXT_PUBLIC_WS_BASE_URL: "ws://158.220.90.106:31000"
