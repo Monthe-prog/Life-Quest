@@ -7,6 +7,8 @@ NAMESPACE="${NAMESPACE:-operator}"
 APPLY_ORACLE="${APPLY_ORACLE:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_IMPORT="${SKIP_IMPORT:-0}"
+WAIT_FOR_MIGRATIONS="${WAIT_FOR_MIGRATIONS:-1}"
+MIGRATION_TIMEOUT="${MIGRATION_TIMEOUT:-180s}"
 BACKEND_IMAGE="${BACKEND_IMAGE:-life-quest-backend:latest}"
 FRONTEND_IMAGE="${FRONTEND_IMAGE:-life-quest-frontend:latest}"
 BACKEND_TAR="${BACKEND_TAR:-/tmp/life-quest-backend.tar}"
@@ -82,6 +84,14 @@ run_kubectl apply -f infra/kubernetes/base/namespace.yaml
 run_kubectl apply -f infra/kubernetes/secret.yaml
 run_kubectl delete job backend-migrate -n "$NAMESPACE" --ignore-not-found
 run_kubectl apply -k "$OVERLAY"
+
+if [ "$WAIT_FOR_MIGRATIONS" = "1" ]; then
+  if ! run_kubectl wait --for=condition=complete job/backend-migrate -n "$NAMESPACE" --timeout="$MIGRATION_TIMEOUT"; then
+    run_kubectl describe job backend-migrate -n "$NAMESPACE" || true
+    run_kubectl logs job/backend-migrate -n "$NAMESPACE" --tail=160 || true
+    exit 1
+  fi
+fi
 
 run_kubectl rollout restart deployment/backend -n "$NAMESPACE"
 run_kubectl rollout restart deployment/frontend -n "$NAMESPACE"

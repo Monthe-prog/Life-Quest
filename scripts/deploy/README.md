@@ -39,5 +39,8 @@ The deploy helper also supports:
 ```bash
 SKIP_BUILD=1 bash scripts/deploy/k8s-vps-deploy.sh
 SKIP_IMPORT=1 bash scripts/deploy/k8s-vps-deploy.sh
+WAIT_FOR_MIGRATIONS=0 bash scripts/deploy/k8s-vps-deploy.sh
 OVERLAY=infra/kubernetes/vps-safe bash scripts/deploy/k8s-vps-deploy.sh
 ```
+
+By default the deploy helper waits for the `backend-migrate` Job. If migrations fail, it prints the migration Job details and logs before exiting.

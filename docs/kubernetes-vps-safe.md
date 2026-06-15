@@ -123,6 +123,8 @@ bash scripts/deploy/k8s-vps-deploy.sh
 
 This builds backend/frontend with Docker Compose, tags the images as `life-quest-backend:latest` and `life-quest-frontend:latest`, imports them into K3s, applies the overlay, restarts the app deployments, and runs the smoke check.
 
+The helper waits for the `backend-migrate` Job and prints migration logs if the Job fails.
+
 Manual deploy:
 
 ```bash
