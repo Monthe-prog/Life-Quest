@@ -94,7 +94,8 @@ This keeps behavior unchanged while the code gains clean seams for extraction.
 Started:
 
 - Oracle routes now depend on an `OracleClient` boundary in `app/modules/oracle/client.py`.
-- The implementation still uses the existing local `OracleService`, so runtime behavior and API paths stay unchanged.
+- The gateway uses the existing local `OracleService` when `ORACLE_SERVICE_URL` is unset, so runtime behavior and API paths stay unchanged by default.
+- A standalone Oracle app exists at `app/modules/oracle/service_app.py` and can be run as the `oracle-service` Docker Compose profile.
 
 ### Phase 2: Extract Oracle First
 
@@ -107,6 +108,16 @@ goals-service or api-gateway -> oracle-service -> OpenAI/Ollama
 ```
 
 Keep fallback generation inside `oracle-service` so the rest of the app does not fail when AI is unavailable.
+
+Run the first optional microservice locally or on the VPS:
+
+```bash
+ORACLE_SERVICE_URL=http://oracle-service:8010 docker compose --profile microservices up -d --build oracle-service backend
+curl http://127.0.0.1:8010/health
+curl http://127.0.0.1:8000/health
+```
+
+If `oracle-service` is unavailable, the gateway degrades to the same deterministic fallback instead of failing requests.
 
 ### Phase 3: Extract Guild And Realtime
 

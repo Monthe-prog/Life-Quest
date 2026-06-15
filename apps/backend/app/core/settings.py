@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     ollama_model: str = Field(default="llama3")
     openai_api_key: str | None = Field(default=None)
     openai_model: str = Field(default="gpt-5.4-mini")
+    oracle_service_url: str | None = Field(default=None)
 
     @property
     def cors_origins(self) -> list[str]:
