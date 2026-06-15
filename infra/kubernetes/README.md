@@ -8,6 +8,14 @@ docs/kubernetes-vps-safe.md
 
 That guide installs K3s without Traefik/ServiceLB and exposes Kubernetes on high ports so it does not hijack port `80`.
 
+After the VPS-safe deployment is healthy, the optional first microservice overlay is:
+
+```bash
+sudo kubectl apply -k /opt/life-quest/operator/infra/kubernetes/vps-safe-oracle-service
+```
+
+It adds an internal `oracle-service:8010` deployment and patches the backend to use it through `ORACLE_SERVICE_URL`.
+
 These manifests target a single-node K3s VPS with Traefik enabled.
 
 ## 1. Build and Push Images

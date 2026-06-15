@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operator-config
+  namespace: operator
+data:
+  ORACLE_SERVICE_URL: "http://oracle-service:8010"

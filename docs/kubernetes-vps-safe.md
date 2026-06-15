@@ -171,7 +171,42 @@ curl -I http://127.0.0.1:9090/-/ready
 curl -I http://127.0.0.1:3001/login
 ```
 
-## 8. Presentation Commands
+## 8. Optional Oracle Microservice Overlay
+
+After the regular VPS-safe deployment is healthy, you can run the first extracted microservice in Kubernetes:
+
+```bash
+cd /opt/life-quest
+
+sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe-oracle-service
+
+sudo kubectl rollout status deployment/oracle-service -n operator --timeout=180s
+sudo kubectl rollout restart deployment/backend -n operator
+sudo kubectl rollout status deployment/backend -n operator --timeout=180s
+```
+
+Verify that the backend is configured to call the internal service:
+
+```bash
+sudo kubectl exec -n operator deployment/backend -- printenv ORACLE_SERVICE_URL
+sudo kubectl exec -n operator deployment/backend -- python -c "import urllib.request; print(urllib.request.urlopen('http://oracle-service:8010/health', timeout=5).read().decode())"
+```
+
+Expected:
+
+```text
+http://oracle-service:8010
+{"status":"online","service":"operator-oracle-service"}
+```
+
+The frontend and backend public checks stay the same:
+
+```bash
+curl http://127.0.0.1:31000/health
+curl -I http://127.0.0.1:31080
+```
+
+## 9. Presentation Commands
 
 Show Docker Compose production:
 
@@ -197,13 +232,14 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:31000/health
 ```
 
-## 9. Stop Kubernetes Without Affecting Docker Compose
+## 10. Stop Kubernetes Without Affecting Docker Compose
 
 Stop the Kubernetes copy:
 
 ```bash
 sudo kubectl scale deployment/frontend -n operator --replicas=0
 sudo kubectl scale deployment/backend -n operator --replicas=0
+sudo kubectl scale deployment/oracle-service -n operator --replicas=0 || true
 ```
 
 Start it again:
@@ -211,6 +247,7 @@ Start it again:
 ```bash
 sudo kubectl scale deployment/backend -n operator --replicas=1
 sudo kubectl scale deployment/frontend -n operator --replicas=1
+sudo kubectl scale deployment/oracle-service -n operator --replicas=1 || true
 ```
 
 Remove the Kubernetes copy:

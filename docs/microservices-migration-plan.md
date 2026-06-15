@@ -119,6 +119,16 @@ curl http://127.0.0.1:8000/health
 
 If `oracle-service` is unavailable, the gateway degrades to the same deterministic fallback instead of failing requests.
 
+Run the same first microservice in the VPS-safe Kubernetes deployment:
+
+```bash
+sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe-oracle-service
+sudo kubectl rollout status deployment/oracle-service -n operator --timeout=180s
+sudo kubectl exec -n operator deployment/backend -- printenv ORACLE_SERVICE_URL
+```
+
+This overlay keeps frontend on `31080`, backend on `31000`, and makes `oracle-service` internal-only on `oracle-service:8010`.
+
 ### Phase 3: Extract Guild And Realtime
 
 Move guild chat, feed, moderation, and WebSocket fan-out after Oracle. This gives a visible microservice demo without touching the most sensitive auth and goal data first.
