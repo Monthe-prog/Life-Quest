@@ -6,7 +6,10 @@ BACKEND_HEALTH_URL="${BACKEND_HEALTH_URL:-http://127.0.0.1:31000/health}"
 FRONTEND_URL="${FRONTEND_URL:-http://127.0.0.1:31080}"
 COMPOSE_BACKEND_HEALTH_URL="${COMPOSE_BACKEND_HEALTH_URL:-http://127.0.0.1:8000/health}"
 COMPOSE_FRONTEND_URL="${COMPOSE_FRONTEND_URL:-http://127.0.0.1:3000}"
+PROMETHEUS_READY_URL="${PROMETHEUS_READY_URL:-http://127.0.0.1:9090/-/ready}"
+GRAFANA_LOGIN_URL="${GRAFANA_LOGIN_URL:-http://127.0.0.1:3001/login}"
 CHECK_COMPOSE="${CHECK_COMPOSE:-1}"
+CHECK_MONITORING="${CHECK_MONITORING:-1}"
 CHECK_ORACLE="${CHECK_ORACLE:-auto}"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-120s}"
 
@@ -78,6 +81,11 @@ if [ "$CHECK_COMPOSE" = "1" ]; then
   run_check "docker compose ps" docker compose ps
   run_check "Compose backend health" curl_get "$COMPOSE_BACKEND_HEALTH_URL"
   run_check "Compose frontend" curl_head "$COMPOSE_FRONTEND_URL"
+
+  if [ "$CHECK_MONITORING" = "1" ]; then
+    run_check "Compose Prometheus readiness" curl_head "$PROMETHEUS_READY_URL"
+    run_check "Compose Grafana login" curl_head "$GRAFANA_LOGIN_URL"
+  fi
 fi
 
 if [ "$failures" -gt 0 ]; then

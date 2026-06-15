@@ -183,6 +183,7 @@ The script checks:
 - backend NodePort `31000`.
 - frontend NodePort `31080`.
 - Docker Compose backend and frontend, so Kubernetes changes do not break the working app.
+- Docker Compose Prometheus and Grafana, so monitoring stays available.
 - backend logs automatically if a check fails.
 
 Browser:

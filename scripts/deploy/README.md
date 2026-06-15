@@ -28,11 +28,12 @@ Useful options:
 
 ```bash
 CHECK_COMPOSE=0 bash scripts/deploy/k8s-vps-smoke.sh
+CHECK_MONITORING=0 bash scripts/deploy/k8s-vps-smoke.sh
 CHECK_ORACLE=1 bash scripts/deploy/k8s-vps-smoke.sh
 KUBECTL=kubectl bash scripts/deploy/k8s-vps-smoke.sh
 ```
 
-If backend fails, it prints backend pod details and logs so the crash reason can be copied directly.
+If backend fails, it prints backend pod details and logs so the crash reason can be copied directly. Monitoring checks cover Prometheus on `9090` and Grafana on `3001` by default.
 
 The deploy helper also supports:
 
