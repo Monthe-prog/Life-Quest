@@ -28,6 +28,9 @@ infra/nginx      VPS reverse proxy example
 docs             Architecture, deployment, and API notes
 ```
 
+The current backend is a modular monolith. The phased path to a full microservice architecture is documented in
+[`microservices-migration-plan.md`](microservices-migration-plan.md).
+
 ## Backend Modules
 
 - `auth`: email/password and JWT access/refresh token flow

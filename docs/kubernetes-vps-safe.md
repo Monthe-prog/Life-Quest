@@ -108,7 +108,8 @@ Use the same OpenAI key as Docker Compose if you want Oracle AI to work in Kuber
 ## 6. Deploy The VPS-Safe Kubernetes Overlay
 
 ```bash
-sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe
+sudo kubectl kustomize --load-restrictor=LoadRestrictionsNone /opt/life-quest/infra/kubernetes/vps-safe \
+  | sudo kubectl apply -f -
 ```
 
 Wait:
@@ -127,6 +128,20 @@ You should see:
 
 - `frontend` as `NodePort` on `31080`
 - `backend` as `NodePort` on `31000`
+
+If `backend` shows `CrashLoopBackOff`, get the exact startup error before changing manifests:
+
+```bash
+sudo kubectl logs -n operator deployment/backend --previous --tail=120
+sudo kubectl describe pod -n operator -l app=backend
+```
+
+Most backend Kubernetes failures come from a bad `operator-secrets` value, a database password mismatch, or an old image being loaded into K3s. After fixing the cause, restart only the backend:
+
+```bash
+sudo kubectl rollout restart deployment/backend -n operator
+sudo kubectl rollout status deployment/backend -n operator --timeout=180s
+```
 
 ## 7. Verify Kubernetes Without Touching Docker Compose
 
@@ -195,7 +210,8 @@ sudo kubectl scale deployment/frontend -n operator --replicas=1
 Remove the Kubernetes copy:
 
 ```bash
-sudo kubectl delete -k /opt/life-quest/infra/kubernetes/vps-safe
+sudo kubectl kustomize --load-restrictor=LoadRestrictionsNone /opt/life-quest/infra/kubernetes/vps-safe \
+  | sudo kubectl delete -f -
 ```
 
 This does not remove Docker Compose containers.
