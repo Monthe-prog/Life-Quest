@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import OracleConversation, User
-from app.modules.oracle.service import oracle_service
+from app.modules.oracle.client import OracleClient, get_oracle_client
 
 router = APIRouter()
 
@@ -39,11 +39,14 @@ class BreakdownResponse(BaseModel):
 
 
 @router.get("/status")
-async def status(user: Annotated[User, Depends(get_current_user)]) -> dict[str, str | bool]:
+async def status(
+    user: Annotated[User, Depends(get_current_user)],
+    oracle: Annotated[OracleClient, Depends(get_oracle_client)],
+) -> dict[str, str | bool]:
     return {
-        "provider": "openai" if oracle_service.configured else "fallback",
-        "configured": oracle_service.configured,
-        "model": oracle_service.settings.openai_model,
+        "provider": "openai" if oracle.configured else "fallback",
+        "configured": oracle.configured,
+        "model": oracle.model_name,
     }
 
 
@@ -52,6 +55,7 @@ async def interrogate(
     payload: OraclePrompt,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    oracle: Annotated[OracleClient, Depends(get_oracle_client)],
 ) -> OracleResponse:
     prompt = (
         "Interrogate this vague intent and turn it into a concrete mission. "
@@ -59,7 +63,7 @@ async def interrogate(
         "If enough detail exists, propose 1-3 goals and ask whether to create them manually or automatically.\n\n"
         f"Operator input: {payload.message}\nContext: {payload.context}"
     )
-    result = await oracle_service.generate(prompt)
+    result = await oracle.generate(prompt)
     db.add(
         OracleConversation(
             user_id=user.id,
@@ -74,11 +78,12 @@ async def interrogate(
 async def breakdown_goal(
     payload: BreakdownPrompt,
     user: Annotated[User, Depends(get_current_user)],
+    oracle: Annotated[OracleClient, Depends(get_oracle_client)],
 ) -> BreakdownResponse:
-    result = await oracle_service.breakdown_goal(payload.title, payload.horizon, payload.child_horizon)
+    result = await oracle.breakdown_goal(payload.title, payload.horizon, payload.child_horizon)
     return BreakdownResponse(
         response=result.text,
-        tasks=oracle_service.parse_tasks(result.text, payload.title),
+        tasks=oracle.parse_tasks(result.text, payload.title),
         provider=result.provider,
         degraded=result.degraded,
     )
@@ -88,8 +93,9 @@ async def breakdown_goal(
 async def schedule_review(
     payload: OraclePrompt,
     user: Annotated[User, Depends(get_current_user)],
+    oracle: Annotated[OracleClient, Depends(get_oracle_client)],
 ) -> OracleResponse:
-    result = await oracle_service.generate(
+    result = await oracle.generate(
         "Review this weekly schedule and suggest sharper execution order:\n\n" + payload.message
     )
     return OracleResponse(response=result.text, provider=result.provider, degraded=result.degraded)

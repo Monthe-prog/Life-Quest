@@ -91,6 +91,11 @@ frontend -> api-gateway -> local module adapters
 
 This keeps behavior unchanged while the code gains clean seams for extraction.
 
+Started:
+
+- Oracle routes now depend on an `OracleClient` boundary in `app/modules/oracle/client.py`.
+- The implementation still uses the existing local `OracleService`, so runtime behavior and API paths stay unchanged.
+
 ### Phase 2: Extract Oracle First
 
 Oracle is the best first service because it has a narrow external dependency and already degrades safely when the AI provider fails.

@@ -47,6 +47,7 @@ Change at least:
 ## 3. Deploy
 
 ```bash
+sudo kubectl apply -f /opt/life-quest/operator/infra/kubernetes/base/namespace.yaml
 sudo kubectl apply -k /opt/life-quest/operator/infra/kubernetes
 ```
 
@@ -83,7 +84,7 @@ The `backend-migrate` Job runs on deploy. To rerun it after a new release:
 
 ```bash
 sudo kubectl delete job backend-migrate -n operator
-sudo kubectl apply -f /opt/life-quest/operator/infra/kubernetes/backend.yaml
+sudo kubectl apply -f /opt/life-quest/operator/infra/kubernetes/base/backend.yaml
 ```
 
 ## 6. Update After a New Image

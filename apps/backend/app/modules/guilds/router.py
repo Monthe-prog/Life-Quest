@@ -745,7 +745,7 @@ async def remove_member(member_id: str, user: Annotated[User, Depends(get_curren
     return await guild_overview(user, db)
 
 
-@router.delete("/membership", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/membership", status_code=status.HTTP_204_NO_CONTENT, response_class=Response, response_model=None)
 async def quit_guild(user: Annotated[User, Depends(get_current_user)], db: Annotated[AsyncSession, Depends(get_db)]) -> None:
     membership = await require_membership(db, user)
     if membership.role == "owner":

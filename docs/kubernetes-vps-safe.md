@@ -105,11 +105,17 @@ Set real values for:
 
 Use the same OpenAI key as Docker Compose if you want Oracle AI to work in Kubernetes too.
 
+Apply the namespace and secret before the overlay:
+
+```bash
+sudo kubectl apply -f /opt/life-quest/infra/kubernetes/base/namespace.yaml
+sudo kubectl apply -f /opt/life-quest/infra/kubernetes/secret.yaml
+```
+
 ## 6. Deploy The VPS-Safe Kubernetes Overlay
 
 ```bash
-sudo kubectl kustomize --load-restrictor=LoadRestrictionsNone /opt/life-quest/infra/kubernetes/vps-safe \
-  | sudo kubectl apply -f -
+sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe
 ```
 
 Wait:
@@ -210,8 +216,7 @@ sudo kubectl scale deployment/frontend -n operator --replicas=1
 Remove the Kubernetes copy:
 
 ```bash
-sudo kubectl kustomize --load-restrictor=LoadRestrictionsNone /opt/life-quest/infra/kubernetes/vps-safe \
-  | sudo kubectl delete -f -
+sudo kubectl delete -k /opt/life-quest/infra/kubernetes/vps-safe
 ```
 
-This does not remove Docker Compose containers.
+This does not remove Docker Compose containers. It also does not remove `operator-secrets`, which is applied separately.

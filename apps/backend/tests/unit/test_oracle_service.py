@@ -5,6 +5,13 @@ import pytest
 from app.modules.oracle.service import OracleService
 
 
+def test_model_name_reads_current_settings() -> None:
+    service = OracleService()
+    service.settings.openai_model = "test-oracle-model"
+
+    assert service.model_name == "test-oracle-model"
+
+
 @pytest.mark.asyncio
 async def test_generate_returns_degraded_fallback_when_api_key_is_missing() -> None:
     service = OracleService()

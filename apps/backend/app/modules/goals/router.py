@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models import Achievement, ActivityEvent, BossBattle, CharacterProfile, CharacterStat, Goal, SkillUnlock, User
-from app.modules.oracle.service import oracle_service
+from app.modules.oracle.client import OracleClient, get_oracle_client
 
 router = APIRouter()
 
@@ -364,6 +364,7 @@ async def oracle_breakdown(
     goal_id: str,
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    oracle: Annotated[OracleClient, Depends(get_oracle_client)],
 ) -> BreakdownResponse:
     parent = await get_owned_goal(db, user, goal_id)
     child_horizon = CHILD_HORIZON.get(parent.horizon)
@@ -373,8 +374,8 @@ async def oracle_breakdown(
             detail="Oracle breakdown is only available for goals above evening daily tasks.",
         )
 
-    oracle_result = await oracle_service.breakdown_goal(parent.title, parent.horizon, child_horizon)
-    tasks = oracle_service.parse_tasks(oracle_result.text, parent.title)
+    oracle_result = await oracle.breakdown_goal(parent.title, parent.horizon, child_horizon)
+    tasks = oracle.parse_tasks(oracle_result.text, parent.title)
     return BreakdownResponse(parent=serialize_goal(parent), child_horizon=child_horizon, tasks=tasks)
 
 

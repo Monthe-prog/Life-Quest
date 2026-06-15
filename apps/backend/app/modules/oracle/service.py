@@ -32,6 +32,10 @@ class OracleService:
     def configured(self) -> bool:
         return bool(self.settings.openai_api_key)
 
+    @property
+    def model_name(self) -> str:
+        return self.settings.openai_model
+
     async def generate(self, prompt: str, instructions: str | None = None) -> OracleResult:
         if not self.configured:
             return OracleResult(
