@@ -114,6 +114,17 @@ sudo kubectl apply -f /opt/life-quest/infra/kubernetes/secret.yaml
 
 ## 6. Deploy The VPS-Safe Kubernetes Overlay
 
+Recommended one-command deploy:
+
+```bash
+cd /opt/life-quest
+bash scripts/deploy/k8s-vps-deploy.sh
+```
+
+This builds backend/frontend with Docker Compose, tags the images as `life-quest-backend:latest` and `life-quest-frontend:latest`, imports them into K3s, applies the overlay, restarts the app deployments, and runs the smoke check.
+
+Manual deploy:
+
 ```bash
 sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe
 ```
@@ -190,6 +201,15 @@ curl -I http://127.0.0.1:3001/login
 ## 8. Optional Oracle Microservice Overlay
 
 After the regular VPS-safe deployment is healthy, you can run the first extracted microservice in Kubernetes:
+
+Recommended:
+
+```bash
+cd /opt/life-quest
+APPLY_ORACLE=1 bash scripts/deploy/k8s-vps-deploy.sh
+```
+
+Manual:
 
 ```bash
 cd /opt/life-quest

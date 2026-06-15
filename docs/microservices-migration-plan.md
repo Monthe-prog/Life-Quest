@@ -122,9 +122,8 @@ If `oracle-service` is unavailable, the gateway degrades to the same determinist
 Run the same first microservice in the VPS-safe Kubernetes deployment:
 
 ```bash
-sudo kubectl apply -k /opt/life-quest/infra/kubernetes/vps-safe-oracle-service
-sudo kubectl rollout status deployment/oracle-service -n operator --timeout=180s
-sudo kubectl exec -n operator deployment/backend -- printenv ORACLE_SERVICE_URL
+cd /opt/life-quest
+APPLY_ORACLE=1 bash scripts/deploy/k8s-vps-deploy.sh
 ```
 
 This overlay keeps frontend on `31080`, backend on `31000`, and makes `oracle-service` internal-only on `oracle-service:8010`.
