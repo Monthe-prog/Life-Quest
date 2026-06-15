@@ -156,6 +156,22 @@ curl http://127.0.0.1:31000/health
 curl -I http://127.0.0.1:31080
 ```
 
+Or run the full smoke check:
+
+```bash
+cd /opt/life-quest
+bash scripts/deploy/k8s-vps-smoke.sh
+```
+
+The script checks:
+
+- K3s node, pods, and services.
+- backend and frontend rollouts.
+- backend NodePort `31000`.
+- frontend NodePort `31080`.
+- Docker Compose backend and frontend, so Kubernetes changes do not break the working app.
+- backend logs automatically if a check fails.
+
 Browser:
 
 ```text
@@ -230,6 +246,12 @@ curl -I http://127.0.0.1:3000
 curl -I http://127.0.0.1:31080
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:31000/health
+```
+
+Or use the smoke script:
+
+```bash
+bash scripts/deploy/k8s-vps-smoke.sh
 ```
 
 ## 10. Stop Kubernetes Without Affecting Docker Compose

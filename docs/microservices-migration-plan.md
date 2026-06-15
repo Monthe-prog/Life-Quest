@@ -129,6 +129,12 @@ sudo kubectl exec -n operator deployment/backend -- printenv ORACLE_SERVICE_URL
 
 This overlay keeps frontend on `31080`, backend on `31000`, and makes `oracle-service` internal-only on `oracle-service:8010`.
 
+Use the VPS smoke script as the verification gate:
+
+```bash
+CHECK_ORACLE=1 bash scripts/deploy/k8s-vps-smoke.sh
+```
+
 ### Phase 3: Extract Guild And Realtime
 
 Move guild chat, feed, moderation, and WebSocket fan-out after Oracle. This gives a visible microservice demo without touching the most sensitive auth and goal data first.
