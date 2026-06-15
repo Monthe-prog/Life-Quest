@@ -10,10 +10,13 @@ This project uses `Jenkinsfile` for CI/CD.
    - Frontend TypeScript check: `npm run typecheck`
    - Backend Python compile check: `python3 -m compileall apps/backend/app`
 4. Build Docker images with Docker Compose.
-5. Deploy `main` to the VPS:
+5. Run backend tests with coverage inside the backend Docker image.
+6. Deploy `main` to the VPS:
    - Pull latest code into `/opt/life-quest`
    - Rebuild/start containers
    - Run Alembic migrations
+   - Import the FastAPI app inside the running backend container
+   - Smoke-check backend and frontend HTTP endpoints
    - Print container status
 
 ## Jenkins Requirements
@@ -22,7 +25,7 @@ Install these on the Jenkins agent:
 
 ```bash
 sudo apt update
-sudo apt install -y git nodejs npm python3 docker.io docker-compose-plugin
+sudo apt install -y curl git nodejs npm python3 docker.io docker-compose-plugin
 sudo usermod -aG docker jenkins
 sudo systemctl restart jenkins
 ```
@@ -93,3 +96,20 @@ BACKEND_CORS_ORIGINS=http://158.220.90.106
 ```
 
 Do not run `docker compose down -v` in Jenkins. It deletes database volumes.
+
+## Kubernetes Smoke Check
+
+Kubernetes is intentionally kept outside the default Jenkins deploy until the VPS-safe K3s path is fully stable.
+
+After manually applying the Kubernetes overlay on the VPS, verify it with:
+
+```bash
+cd /opt/life-quest
+bash scripts/deploy/k8s-vps-smoke.sh
+```
+
+For the optional Oracle microservice overlay:
+
+```bash
+CHECK_ORACLE=1 bash scripts/deploy/k8s-vps-smoke.sh
+```

@@ -78,6 +78,9 @@ pipeline {
               git reset --hard origin/main
               docker compose up -d --build
               docker compose exec -T backend alembic upgrade head
+              docker compose exec -T backend python -c 'from app.main import app; print(app.title)'
+              curl -fsS http://127.0.0.1:8000/health
+              curl -fsSI http://127.0.0.1:3000 >/dev/null
               docker compose ps
             "
           '''
